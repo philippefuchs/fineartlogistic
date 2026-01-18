@@ -30,7 +30,7 @@ export function recommendTeam(
 
     // Calculate metrics
     const artworkCount = artworks.length;
-    const totalValue = artworks.reduce((sum, a) => sum + (a.value || 0), 0);
+    const totalValue = artworks.reduce((sum, a) => sum + (a.insurance_value || 0), 0);
     const avgFragility = artworks.reduce((sum, a) => sum + (a.fragility || 3), 0) / artworkCount;
 
     // Helper to find role
