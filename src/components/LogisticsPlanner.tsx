@@ -1,17 +1,16 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { Artwork, Project, LogisticsFlow, LogisticsStep } from "@/types";
+import { useState, useEffect, useMemo } from "react";
+import { Artwork, Project, LogisticsFlow, LogisticsStep, LogisticsPlanResult } from "@/types";
 import { GlassCard } from "./ui/GlassCard";
-import { X, Truck, Ship, Plane, Sparkles, Loader2, AlertCircle, CheckCircle2, Users, Plus, Minus, Trash2, Bot, FileText } from "lucide-react";
-import { planLogisticsFlow, LogisticsPlanResult } from "@/services/geminiService";
+import { Truck, Info, Calendar, Users, MapPin, CheckCircle2, AlertTriangle, GitFork, X, Ship, Plane, Sparkles, Loader2, AlertCircle, Plus, Minus, Trash2, Bot, FileText } from "lucide-react";
+import { planLogisticsFlow } from "@/services/geminiService";
 import { cn } from "@/lib/utils";
 import { useProjectStore } from "@/hooks/useProjectStore";
 import { recommendTeam, TeamMemberRecommendation, estimateMissionDuration } from "@/services/teamRecommendation";
 import { calculateTeamCosts, calculateTeamCostsFromSteps } from "@/services/teamCostCalculator";
 import { calculateRoute } from "@/services/googleMapsService";
 import { getPricingConfig } from "@/config/pricing";
-import { Info } from "lucide-react";
 import { TimelineLogistique } from "./TimelineLogistique";
 import { FormalitiesModule } from "./FormalitiesModule";
 
@@ -19,15 +18,38 @@ interface LogisticsPlannerProps {
     project: Project;
     artworks: Artwork[];
     onClose: () => void;
-    onSave: (result: LogisticsPlanResult, origin: string, destination: string) => void;
+    onSave: (result: LogisticsPlanResult, origin: string, destination: string, flowId?: string) => void;
+    flow?: LogisticsFlow;
+    projectFlows?: LogisticsFlow[];
 }
 
-export function LogisticsPlanner({ project, artworks, onClose, onSave }: LogisticsPlannerProps) {
+export function LogisticsPlanner({ project, artworks, onClose, onSave, flow, projectFlows = [] }: LogisticsPlannerProps) {
     const [planning, setPlanning] = useState(false);
     const [planResult, setPlanResult] = useState<LogisticsPlanResult | null>(null);
     const [error, setError] = useState<string | null>(null);
-    const [origin, setOrigin] = useState("Paris, France");
-    const [destination, setDestination] = useState("New York, USA");
+    const [origin, setOrigin] = useState(flow?.origin_city || "Paris, France");
+    const [destination, setDestination] = useState(flow?.destination_city || "New York, USA");
+
+    // Internal flow selection for global view
+    const [selectedFlowId, setSelectedFlowId] = useState<string>("ALL");
+
+    // Filter artworks based on context
+    const filteredArtworks = useMemo(() => {
+        if (flow) return artworks; // If focused on a specific flow, assume parent filtered correctly or we want only those
+        if (selectedFlowId === "ALL") return artworks;
+        return artworks.filter(a => a.flow_id === selectedFlowId);
+    }, [artworks, flow, selectedFlowId]);
+
+    // Update form when selecting a flow internally
+    useEffect(() => {
+        if (!flow && selectedFlowId !== "ALL") {
+            const f = projectFlows.find(f => f.id === selectedFlowId);
+            if (f) {
+                setOrigin(f.origin_city || f.origin_country);
+                setDestination(f.destination_city || f.destination_country);
+            }
+        }
+    }, [selectedFlowId, flow, projectFlows]);
 
     // Team Management State
     const { logisticsConfig } = useProjectStore();
@@ -38,23 +60,57 @@ export function LogisticsPlanner({ project, artworks, onClose, onSave }: Logisti
     const [teamRecommendation, setTeamRecommendation] = useState<string>("");
 
     // Transport Cost State
-    const [distanceKm, setDistanceKm] = useState<number>(0);
-    const [manualTransportCost, setManualTransportCost] = useState<number | null>(null);
+    const [distanceKm, setDistanceKm] = useState<number>(flow?.transport_cost_breakdown?.distance_km || 0);
+    const [manualTransportCost, setManualTransportCost] = useState<number | null>(flow?.transport_cost_total || null);
     const pricing = getPricingConfig();
 
+    // Effect to initialize from flow
+    useEffect(() => {
+        if (flow) {
+            let initialMethod = flow.flow_type as any;
+            if (initialMethod === 'FRANCE_INTERNAL' || initialMethod === 'EU_ROAD') {
+                initialMethod = 'DEDICATED_TRUCK'; // Default icon/logic for road
+            }
+
+            setPlanResult({
+                recommended_method: initialMethod,
+                rationale: "Flux chargé depuis la sauvegarde.",
+                estimated_lead_time: "Consulter planning",
+                required_crate_level: "VOYAGE",
+                risk_assessment: "LOW"
+            });
+
+            if (flow.team_members) {
+                setTeamMembers(flow.team_members.map(m => ({
+                    role_id: m.role_id,
+                    role_name: m.role_name,
+                    count: m.count,
+                    daily_rate: m.daily_rate,
+                    hotel_category: m.hotel_category,
+                    rationale: "Chargé depuis le flux"
+                })));
+            }
+
+            if (flow.steps) {
+                setSteps(flow.steps);
+            }
+        }
+    }, [flow]);
+
     const handlePlanFlow = async () => {
-        if (artworks.length === 0) return;
+        if (filteredArtworks.length === 0) return;
 
         setPlanning(true);
         setError(null);
         try {
             // Get logistics strategy from AI
-            const result = await planLogisticsFlow(artworks, origin, destination);
+            // Pass constraints if available (from CCTP analysis)
+            const result = await planLogisticsFlow(filteredArtworks, origin, destination, project.constraints);
             setPlanResult(result);
 
             // Generate team recommendation
             const route = await calculateRoute(origin, destination);
-            const recommendation = recommendTeam(artworks, route.distanceKm, logisticsConfig.team_roles);
+            const recommendation = recommendTeam(filteredArtworks, route.distanceKm, logisticsConfig.team_roles);
 
             // Recalculate duration based on real travel time
             const estimatedDuration = estimateMissionDuration(route.durationHours, result.recommended_method);
@@ -158,10 +214,12 @@ export function LogisticsPlanner({ project, artworks, onClose, onSave }: Logisti
     const autoTransportCost = calculateEstimatedTransportCost();
     const finalTransportCost = manualTransportCost ?? autoTransportCost;
 
-    const methodIcons: Record<'ART_SHUTTLE' | 'DEDICATED_TRUCK' | 'AIR_FREIGHT', React.ReactNode> = {
+    const methodIcons: Record<string, React.ReactNode> = {
         ART_SHUTTLE: <Truck size={24} className="text-blue-400" />,
         DEDICATED_TRUCK: <Truck size={24} className="text-indigo-400" />,
         AIR_FREIGHT: <Plane size={24} className="text-purple-400" />,
+        EU_ROAD: <Truck size={24} className="text-zinc-400" />,
+        FRANCE_INTERNAL: <Truck size={24} className="text-emerald-400" />,
     };
 
     return (
@@ -182,6 +240,37 @@ export function LogisticsPlanner({ project, artworks, onClose, onSave }: Logisti
                     <div className="lg:col-span-4 space-y-8">
                         <div className="space-y-4">
                             <h3 className="text-xs font-black uppercase tracking-[0.2em] text-zinc-600">Configuration Itinéraire</h3>
+
+                            {/* Flow Selector if not in flow-specific mode */}
+                            {!flow && projectFlows.length > 0 && (
+                                <div className="space-y-2">
+                                    <label className="text-xs font-medium text-zinc-400">Filtrer par Flux</label>
+                                    <select
+                                        className="w-full rounded-xl border border-white/5 bg-white/5 px-4 py-3 text-white focus:border-blue-500/50 outline-none hover:bg-white/10 transition-colors cursor-pointer"
+                                        value={selectedFlowId}
+                                        onChange={e => setSelectedFlowId(e.target.value)}
+                                    >
+                                        <option value="ALL" className="bg-zinc-900 text-white">Tous les flux ({artworks.length} œuvres)</option>
+                                        {projectFlows.map(f => (
+                                            <option key={f.id} value={f.id} className="bg-zinc-900 text-white">
+                                                {(() => {
+                                                    const typeMap: Record<string, string> = {
+                                                        'FRANCE_ROAD': "🇫🇷 France",
+                                                        'EU_ROAD': "🇪🇺 Europe",
+                                                        'INTL_AIR': `✈️ ${f.origin_country}`,
+                                                        'ART_SHUTTLE': 'NAVETTE',
+                                                        'DEDICATED_TRUCK': 'DÉDIÉ'
+                                                    };
+                                                    const label = typeMap[f.flow_type] || f.flow_type;
+                                                    const count = artworks.filter(a => a.flow_id === f.id).length;
+                                                    return `${label} (${count} œuvres)`;
+                                                })()}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                            )}
+
                             <div className="space-y-4">
                                 <div className="space-y-2">
                                     <label className="text-xs font-medium text-zinc-400">Ville de Départ</label>
@@ -203,9 +292,9 @@ export function LogisticsPlanner({ project, artworks, onClose, onSave }: Logisti
                         </div>
 
                         <div className="space-y-4">
-                            <h3 className="text-xs font-black uppercase tracking-[0.2em] text-zinc-600">Œuvres Sélectionnées</h3>
+                            <h3 className="text-xs font-black uppercase tracking-[0.2em] text-zinc-600">Œuvres Sélectionnées ({filteredArtworks.length})</h3>
                             <div className="max-h-48 overflow-y-auto space-y-2 pr-2">
-                                {artworks.map(a => (
+                                {filteredArtworks.map(a => (
                                     <div key={a.id} className="flex items-center gap-3 rounded-lg border border-white/5 bg-white/[0.02] p-2">
                                         <div className="h-8 w-8 rounded bg-zinc-800 flex items-center justify-center text-[10px] text-zinc-500">
                                             BOX
@@ -221,7 +310,7 @@ export function LogisticsPlanner({ project, artworks, onClose, onSave }: Logisti
 
                         <button
                             onClick={handlePlanFlow}
-                            disabled={planning || artworks.length === 0}
+                            disabled={planning || filteredArtworks.length === 0}
                             className="w-full rounded-2xl bg-blue-600 py-4 font-bold text-white hover:bg-blue-500 transition-all shadow-xl shadow-blue-500/10 disabled:opacity-50"
                         >
                             {planning ? "Analyse des Corridors..." : "Générer la Stratégie"}
@@ -267,7 +356,7 @@ export function LogisticsPlanner({ project, artworks, onClose, onSave }: Logisti
                                         </div>
                                         <div>
                                             <h3 className="text-2xl font-black tracking-tight text-white uppercase italic">
-                                                {planResult.recommended_method.replace('_', ' ')}
+                                                {planResult.recommended_method?.replace('_', ' ') || 'NON DÉFINI'}
                                             </h3>
                                             <p className="text-blue-400 font-bold text-xs flex items-center gap-1.5 uppercase tracking-wider">
                                                 <Sparkles size={12} />
@@ -276,9 +365,54 @@ export function LogisticsPlanner({ project, artworks, onClose, onSave }: Logisti
                                         </div>
                                     </div>
 
-                                    <p className="text-zinc-300 leading-relaxed text-sm bg-white/5 p-4 rounded-xl border border-white/5 mb-6">
-                                        "{planResult.rationale}"
-                                    </p>
+                                    <div className="space-y-4 mb-6">
+                                        <p className="text-zinc-300 leading-relaxed text-sm bg-white/5 p-4 rounded-xl border border-white/5">
+                                            "{planResult.rationale}"
+                                        </p>
+
+                                        {/* AI Alerts Display */}
+                                        {planResult.alerts && planResult.alerts.length > 0 && (
+                                            <div className="space-y-2 animate-in fade-in slide-in-from-bottom-2">
+                                                {planResult.alerts.map((alert, idx) => (
+                                                    <div key={idx} className={cn(
+                                                        "flex items-start gap-3 p-3 rounded-lg border text-sm",
+                                                        alert.level === 'CRITICAL' ? "bg-red-500/10 border-red-500/20 text-red-200" :
+                                                            alert.level === 'WARNING' ? "bg-amber-500/10 border-amber-500/20 text-amber-200" :
+                                                                "bg-blue-500/10 border-blue-500/20 text-blue-200"
+                                                    )}>
+                                                        <AlertTriangle size={16} className={cn(
+                                                            "mt-0.5 shrink-0",
+                                                            alert.level === 'CRITICAL' ? "text-red-400" :
+                                                                alert.level === 'WARNING' ? "text-amber-400" :
+                                                                    "text-blue-400"
+                                                        )} />
+                                                        <span>{alert.message}</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+
+                                        {/* Split Recommendation Display */}
+                                        {planResult.split_recommendation && planResult.split_recommendation.required && (
+                                            <div className="p-4 bg-indigo-500/10 border border-indigo-500/30 rounded-xl animate-in fade-in slide-in-from-bottom-3">
+                                                <div className="flex items-center gap-2 text-indigo-400 mb-2 font-bold uppercase text-xs tracking-wider">
+                                                    <GitFork size={14} />
+                                                    Division de Flux Recommandée
+                                                </div>
+                                                <p className="text-indigo-200 text-sm mb-3">
+                                                    {planResult.split_recommendation.reason}
+                                                </p>
+                                                <div className="grid gap-2">
+                                                    {planResult.split_recommendation.shipments.map((shipment, sIdx) => (
+                                                        <div key={sIdx} className="bg-black/20 p-2 rounded text-xs text-zinc-400 flex justify-between">
+                                                            <span>Envoi {shipment.id} ({shipment.items.length} œuvres)</span>
+                                                            <span className="font-mono text-indigo-300">{(shipment.value || 0).toLocaleString()} €</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
 
                                     <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                                         <div className="space-y-1">
@@ -424,7 +558,8 @@ export function LogisticsPlanner({ project, artworks, onClose, onSave }: Logisti
                                                         },
                                                         status: 'PENDING_QUOTE'
                                                     };
-                                                    onSave(extendedResult as any, origin, destination);
+                                                    const activeFlowId = flow?.id || (selectedFlowId !== "ALL" ? selectedFlowId : undefined);
+                                                    onSave(extendedResult as any, origin, destination, activeFlowId);
                                                 }
                                             }}
                                             className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-6 py-3 text-sm font-bold text-zinc-400 hover:bg-white/10 transition-all"
@@ -452,12 +587,13 @@ export function LogisticsPlanner({ project, artworks, onClose, onSave }: Logisti
                                                         },
                                                         status: 'VALIDATED'
                                                     };
-                                                    onSave(extendedResult as any, origin, destination);
+                                                    const activeFlowId = flow?.id || (selectedFlowId !== "ALL" ? selectedFlowId : undefined);
+                                                    onSave(extendedResult as any, origin, destination, activeFlowId);
                                                 }
                                             }}
                                             className="flex items-center gap-2 rounded-xl border border-white/40 bg-white px-6 py-3 text-sm font-bold text-black hover:scale-[1.02] transition-all shadow-xl shadow-white/10"
                                         >
-                                            Valider la Proposition →
+                                            {flow ? "Mettre à jour le Flux" : "Valider la Proposition →"}
                                         </button>
                                     </div>
                                 </div>

@@ -13,7 +13,7 @@ import { QuoteComparison } from "@/components/QuoteComparison";
 import { BudgetControl } from "@/components/BudgetControl";
 import { TaskManager } from "@/components/TaskManager";
 import { Artwork, LogisticsFlow, QuoteLine, Project } from "@/types";
-import { exportProjectToPDF, exportPackingList, exportProformaInvoice } from "@/services/reportService";
+import { exportProjectToPDF, exportPackingList, exportProformaInvoice, exportCCTPSummary } from "@/services/reportService";
 import { ImageUpload } from "@/components/ui/ImageUpload";
 import { cn } from "@/lib/utils";
 import { generateId } from "@/lib/generateId";
@@ -22,9 +22,11 @@ import { ExcelImportModal } from "@/components/ExcelImportModal";
 import { AgentRequestModal } from "@/components/AgentRequestModal";
 import { FinancialConsolidation } from "@/components/FinancialConsolidation";
 import { CompleteQuoteModal } from "@/components/CompleteQuoteModal";
-import { UploadCloud } from "lucide-react";
+import { UploadCloud, Maximize2, FolderOpen } from "lucide-react";
+import { ProjectDocumentsTab } from "@/components/ProjectDocumentsTab";
 
-import { SmartInventoryTable } from "@/components/SmartInventoryTable";
+import { InventoryGrid } from "@/components/InventoryGrid";
+import { ArtworkDetailModal } from "@/components/ArtworkDetailModal";
 
 export default function ProjectPage({ params }: { params: Promise<{ id: string }> }) {
     const { id } = use(params);
@@ -41,6 +43,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
         addFlow,
         deleteFlow,
         addQuoteLines,
+        updateQuoteLine,
         deleteQuoteLine,
         updateProject,
         updateFlow
@@ -56,6 +59,14 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
     const [isEditingMuseum, setIsEditingMuseum] = useState(false);
     const [editedMuseum, setEditedMuseum] = useState("");
     const [showCompleteQuote, setShowCompleteQuote] = useState(false);
+
+    // Selection States for Detail Views
+    const [selectedFlow, setSelectedFlow] = useState<LogisticsFlow | null>(null);
+    const [selectedArtwork, setSelectedArtwork] = useState<Artwork | null>(null);
+
+    // Tab State
+    const [activeTab, setActiveTab] = useState<'INVENTORY' | 'LOGISTICS' | 'DOCUMENTS'>('INVENTORY');
+
     // New State for DnD
     const [isDragging, setIsDragging] = useState(false);
     const [importFile, setImportFile] = useState<File | null>(null);
@@ -81,8 +92,6 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
             setImportFile(file);
         }
     };
-
-    if (!project) return null;
 
     const projectArtworks = artworks.filter(a => a.project_id === id);
     const projectQuoteLines = quoteLines.filter(l => l.project_id === id);
@@ -118,7 +127,119 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
                     projectId={project.id}
                     onClose={() => setImportFile(null)}
                     onImport={(newArtworks) => {
+                        const { getGeoEnrichedData } = require("@/services/geoService");
+
+                        // 1. Detect unique countries and create flows
+                        const countryGroups = new Map<string, Artwork[]>();
+                        newArtworks.forEach(a => {
+                            const geo = getGeoEnrichedData(a.lender_city, a.lender_country);
+                            const key = geo.countryCode;
+                            if (!countryGroups.has(key)) {
+                                countryGroups.set(key, []);
+                            }
+                            countryGroups.get(key)!.push(a);
+                        });
+
+                        const now = new Date().toISOString();
+                        const flowMap = new Map<string, string>();
+                        const transportLines: any[] = [];
+
+                        // Intelligent destination detection (Organizer Country)
+                        const organizerGeo = getGeoEnrichedData("", project.organizing_museum || "Paris");
+                        const organizerCountry = organizerGeo.countryCode;
+
+                        // Create flows for new countries (avoid duplicates if flow already exists)
+                        countryGroups.forEach((groupArtworks, countryCode) => {
+                            const firstArt = groupArtworks[0];
+                            const geo = getGeoEnrichedData(firstArt.lender_city, firstArt.lender_country);
+
+                            const existingFlow = projectFlows.find(f => {
+                                const fGeo = getGeoEnrichedData(f.origin_city || "", f.origin_country);
+                                return fGeo.countryCode === countryCode;
+                            });
+
+                            let flowId = "";
+                            if (existingFlow) {
+                                flowId = existingFlow.id;
+                                flowMap.set(countryCode, flowId);
+                            } else {
+                                let flowType: any = 'INTL_AIR';
+                                if (countryCode === organizerCountry) {
+                                    flowType = 'FRANCE_ROAD';
+                                } else if (geo.isEU) {
+                                    flowType = 'EU_ROAD';
+                                }
+
+                                flowId = generateId();
+                                addFlow({
+                                    id: flowId,
+                                    project_id: project.id,
+                                    origin_city: groupArtworks.length > 1 ? "Plusieurs villes" : firstArt.lender_city,
+                                    origin_country: geo.countryName,
+                                    destination_city: organizerGeo.countryCode === 'US' ? 'New York' : 'Paris',
+                                    destination_country: organizerGeo.countryName,
+                                    flow_type: flowType,
+                                    status: 'PENDING_QUOTE',
+                                    created_at: now
+                                } as any);
+                                flowMap.set(countryCode, flowId);
+
+                                // Add transport estimation
+                                let estPrice = 1200;
+                                if (flowType === 'INTL_AIR') estPrice = 8500;
+                                else if (flowType === 'EU_ROAD') estPrice = 3500;
+                                else if (flowType === 'FRANCE_ROAD') estPrice = 850;
+
+                                transportLines.push({
+                                    id: generateId(),
+                                    project_id: project.id,
+                                    flow_id: flowId,
+                                    category: 'TRANSPORT' as const,
+                                    description: `Estimation transport cluster ${geo.countryName} (${flowType})`,
+                                    quantity: 1,
+                                    unit_price: estPrice,
+                                    total_price: estPrice,
+                                    currency: project.currency || 'EUR',
+                                    source: 'ESTIMATION' as const,
+                                    created_at: now
+                                });
+                            }
+
+                            // Assign flowId to all artworks in this cluster
+                            groupArtworks.forEach(art => {
+                                art.flow_id = flowId;
+                            });
+                        });
+
+                        // 2. Add artworks to store
                         newArtworks.forEach(a => addArtwork(a));
+
+                        // 3. Add packing quote lines automatically
+                        const packingLines = newArtworks
+                            .filter(art => art.crate_estimated_cost)
+                            .map(art => {
+                                const geo = getGeoEnrichedData(art.lender_city, art.lender_country);
+                                const flowId = flowMap.get(geo.countryCode) || "";
+
+                                return {
+                                    id: generateId(),
+                                    project_id: project.id,
+                                    flow_id: flowId,
+                                    category: 'PACKING' as const,
+                                    description: `Emballage caisse pour "${art.title}"`,
+                                    quantity: 1,
+                                    unit_price: art.crate_estimated_cost || 0,
+                                    total_price: art.crate_estimated_cost || 0,
+                                    currency: project.currency || 'EUR',
+                                    source: 'CALCULATION' as const,
+                                    created_at: now
+                                };
+                            });
+
+                        const allLines = [...transportLines, ...packingLines];
+                        if (allLines.length > 0) {
+                            addQuoteLines(allLines);
+                        }
                     }}
                 />
             )}
@@ -160,22 +281,109 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
                     onClose={() => setShowCompleteQuote(false)}
                 />
             )}
+            {selectedArtwork && (
+                <ArtworkDetailModal
+                    artwork={selectedArtwork}
+                    onClose={() => setSelectedArtwork(null)}
+                />
+            )}
             {showForm && (
                 <ArtworkForm
                     projectId={id}
                     onClose={() => setShowForm(false)}
                     onSave={(artwork) => {
+                        const { getGeoEnrichedData } = require("@/services/geoService");
+
+                        const geo = getGeoEnrichedData(artwork.lender_city, artwork.lender_country);
+
+                        // Check if a flow for this country cluster already exists
+                        const existingFlow = projectFlows.find(f => {
+                            const fGeo = getGeoEnrichedData(f.origin_city || "", f.origin_country);
+                            return fGeo.countryCode === geo.countryCode;
+                        });
+
+                        const now = new Date().toISOString();
+                        const flowId = existingFlow ? existingFlow.id : generateId();
+
+                        artwork.flow_id = flowId;
                         addArtwork(artwork);
+
+                        if (!existingFlow) {
+                            const organizerGeo = getGeoEnrichedData("", project?.organizing_museum || "Paris");
+                            const organizerCountry = organizerGeo.countryCode;
+
+                            let flowType: any = 'INTL_AIR';
+                            if (geo.countryCode === organizerCountry) {
+                                flowType = 'FRANCE_ROAD';
+                            } else if (geo.isEU) {
+                                flowType = 'EU_ROAD';
+                            }
+
+                            addFlow({
+                                id: flowId,
+                                project_id: id,
+                                origin_city: artwork.lender_city || 'Inconnu',
+                                origin_country: geo.countryName,
+                                destination_city: organizerGeo.countryCode === 'US' ? 'New York' : 'Paris',
+                                destination_country: organizerGeo.countryName,
+                                flow_type: flowType,
+                                status: 'PENDING_QUOTE',
+                                created_at: now
+                            } as any);
+
+                            // Add transport estimation
+                            let estPrice = 1200;
+                            if (flowType === 'INTL_AIR') estPrice = 8500;
+                            else if (flowType === 'EU_ROAD') estPrice = 3500;
+                            else if (flowType === 'FRANCE_ROAD') estPrice = 850;
+
+                            addQuoteLines([{
+                                id: generateId(),
+                                project_id: id,
+                                flow_id: flowId,
+                                category: 'TRANSPORT' as const,
+                                description: `Estimation transport cluster ${geo.countryName} (${flowType})`,
+                                quantity: 1,
+                                unit_price: estPrice,
+                                total_price: estPrice,
+                                currency: project?.currency || 'EUR',
+                                source: 'ESTIMATION' as const,
+                                created_at: now
+                            }]);
+                        }
+
+                        // Add packing quote line if needed
+                        if (artwork.crate_estimated_cost) {
+                            addQuoteLines([{
+                                id: generateId(),
+                                project_id: id,
+                                flow_id: flowId,
+                                category: 'PACKING' as const,
+                                description: `Emballage caisse pour "${artwork.title}"`,
+                                quantity: 1,
+                                unit_price: artwork.crate_estimated_cost || 0,
+                                total_price: artwork.crate_estimated_cost || 0,
+                                currency: project?.currency || 'EUR',
+                                source: 'CALCULATION' as const,
+                                created_at: now
+                            }]);
+                        }
+
                         setShowForm(false);
                     }}
                 />
             )}
-            {showPlanner && (
+            {(showPlanner || selectedFlow) && (
                 <LogisticsPlanner
                     project={project}
-                    artworks={projectArtworks}
-                    onClose={() => setShowPlanner(false)}
-                    onSave={(result, origin, destination) => {
+                    artworks={selectedFlow ? projectArtworks.filter(a => a.flow_id === selectedFlow.id) : projectArtworks}
+                    flow={selectedFlow || undefined}
+                    projectFlows={projectFlows}
+                    onClose={() => {
+                        setShowPlanner(false);
+                        setSelectedFlow(null);
+                    }}
+                    onSave={(result, origin, destination, flowId) => {
                         // Detect countries from city names
                         const originCountry = origin.toLowerCase().includes('france') || origin.toLowerCase().includes('paris') || origin.toLowerCase().includes('lyon') || origin.toLowerCase().includes('marseille') ? 'FR' :
                             origin.toLowerCase().includes('usa') || origin.toLowerCase().includes('new york') || origin.toLowerCase().includes('los angeles') ? 'US' :
@@ -201,9 +409,9 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
                             flowType = 'EU_ROAD';
                         }
 
-                        const flowId = crypto.randomUUID();
+                        const generatedFlowId = generateId();
                         const newFlow: LogisticsFlow = {
-                            id: flowId,
+                            id: flowId || generatedFlowId,
                             project_id: id,
                             origin_city: origin,
                             destination_city: destination,
@@ -212,6 +420,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
                             flow_type: flowType,
                             status: res.status || 'PENDING_QUOTE',
                             team_members: res.team_members || [],
+                            steps: res.steps || [],
                             mission_duration_days: res.mission_duration_days || 0,
                             per_diem_total: res.per_diem_total || 0,
                             hotel_total: res.hotel_total || 0,
@@ -221,7 +430,13 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
                             created_at: new Date().toISOString()
                         } as any;
 
-                        addFlow(newFlow);
+                        const currentFlowId = flowId || generatedFlowId;
+
+                        if (flowId) {
+                            updateFlow(flowId, newFlow);
+                        } else {
+                            addFlow(newFlow);
+                        }
 
                         // If validated, automatically create QuoteLines
                         if (res.status === 'VALIDATED') {
@@ -230,9 +445,9 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
                             // Transport Line
                             if (res.transport_cost_total > 0) {
                                 newLines.push({
-                                    id: crypto.randomUUID(),
+                                    id: generateId(),
                                     project_id: id,
-                                    flow_id: flowId,
+                                    flow_id: currentFlowId,
                                     category: 'TRANSPORT',
                                     description: `Frais de transport (${res.recommended_method}) - ${origin} → ${destination}`,
                                     quantity: 1,
@@ -248,9 +463,9 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
                             // Team/Handling Line
                             if (res.team_cost_total > 0) {
                                 newLines.push({
-                                    id: crypto.randomUUID(),
+                                    id: generateId(),
                                     project_id: id,
-                                    flow_id: flowId,
+                                    flow_id: currentFlowId,
                                     category: 'HANDLING',
                                     description: `Équipe technique (${res.team_members.length} pers, ${res.mission_duration_days}j)`,
                                     quantity: 1,
@@ -269,6 +484,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
                         }
 
                         setShowPlanner(false);
+                        setSelectedFlow(null);
                     }}
                 />
             )}
@@ -432,6 +648,11 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
                                 <button onClick={() => exportProformaInvoice(project, projectArtworks)} className="w-full text-left px-4 py-3 text-sm text-zinc-300 hover:bg-white/5 hover:text-white transition-colors border-t border-white/5">
                                     Facture Proforma
                                 </button>
+                                {project.constraints && (
+                                    <button onClick={() => exportCCTPSummary(project)} className="w-full text-left px-4 py-3 text-sm text-zinc-300 hover:bg-white/5 hover:text-white transition-colors border-t border-white/5">
+                                        Synthèse CCTP
+                                    </button>
+                                )}
                             </div>
                         </div>
                         <button
@@ -453,16 +674,222 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
                     </div>
                 </div>
 
-                {showComparison ? (
-                    <QuoteComparison
-                        flows={projectFlows}
-                        quoteLines={projectQuoteLines}
-                        onValidateAgent={(flowId, agentName) => {
-                            updateFlow(flowId, { validated_agent_name: agentName, status: 'VALIDATED' });
-                        }}
-                    />
-                ) : (
-                    <>
+                {/* Tab Navigation */}
+                <div className="flex items-center gap-8 border-b border-white/5 mb-8">
+                    {[
+                        { id: 'INVENTORY', label: "Liste d'œuvres", icon: Box },
+                        { id: 'LOGISTICS', label: "Logistique", icon: Truck },
+                        { id: 'DOCUMENTS', label: "📁 Documents / AO", icon: FileText }
+                    ].map((tab) => (
+                        <button
+                            key={tab.id}
+                            onClick={() => setActiveTab(tab.id as any)}
+                            className={cn(
+                                "flex items-center gap-2 py-4 text-sm font-bold transition-all relative",
+                                activeTab === tab.id ? "text-blue-400" : "text-zinc-500 hover:text-zinc-300"
+                            )}
+                        >
+                            <tab.icon size={16} />
+                            {tab.label}
+                            {activeTab === tab.id && (
+                                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.5)]" />
+                            )}
+                        </button>
+                    ))}
+                </div>
+
+                {activeTab === 'LOGISTICS' && (
+                    showComparison ? (
+                        <QuoteComparison
+                            flows={projectFlows}
+                            quoteLines={projectQuoteLines}
+                            artworks={projectArtworks}
+                            onValidateAgent={(flowId, agentName) => {
+                                updateFlow(flowId, { validated_agent_name: agentName, status: 'VALIDATED' });
+                            }}
+                        />
+                    ) : (
+                        <div className="space-y-12 animate-in fade-in duration-500">
+                            {/* Logistics Flows */}
+                            <div className="flex flex-col gap-6">
+                                <h2 className="text-2xl font-bold text-white flex items-center gap-3">
+                                    <Truck size={24} className="text-blue-500" />
+                                    Flux Logistiques
+                                    <span className="text-sm font-normal text-zinc-500 bg-zinc-900 px-2 py-0.5 rounded-md">
+                                        {projectFlows.length}
+                                    </span>
+                                </h2>
+
+                                {projectFlows.length > 0 ? (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        {projectFlows.map((flow) => (
+                                            <GlassCard
+                                                key={flow.id}
+                                                className="p-4 flex items-center justify-between border-white/10 group cursor-pointer hover:border-blue-500/30 transition-all"
+                                                onClick={() => setSelectedFlow(flow)}
+                                            >
+                                                <div className="flex items-center gap-4">
+                                                    <div className="h-12 w-12 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-500">
+                                                        <Truck size={20} />
+                                                    </div>
+                                                    <div className="flex-1">
+                                                        <p className="font-bold text-white uppercase text-xs tracking-wider">
+                                                            {(() => {
+                                                                const typeMap: Record<string, string> = {
+                                                                    'FRANCE_ROAD': "🇫🇷 Flux France (Ramassage)",
+                                                                    'EU_ROAD': "🇪🇺 Flux Europe Routier",
+                                                                    'INTL_AIR': `✈️ Flux ${flow.origin_country} (Import)`,
+                                                                    'ART_SHUTTLE': 'NAVETTE ART',
+                                                                    'DEDICATED_TRUCK': 'CAMION DÉDIÉ'
+                                                                };
+                                                                return typeMap[flow.flow_type] || flow.flow_type.replace('_', ' ');
+                                                            })()}
+                                                        </p>
+                                                        <p className="text-[10px] text-zinc-500">
+                                                            {flow.origin_city || flow.origin_country} → {flow.destination_city || flow.destination_country}
+                                                        </p>
+                                                        {flow.status === 'VALIDATED' && (
+                                                            <div className="mt-2">
+                                                                <div className="flex items-center gap-2 mb-1">
+                                                                    <CheckCircle2 size={10} className="text-emerald-500" />
+                                                                    <span className="text-[9px] uppercase font-bold text-zinc-600">Agent Validé</span>
+                                                                </div>
+                                                                <select
+                                                                    value={flow.validated_agent_name || ""}
+                                                                    onChange={(e) => updateFlow(flow.id, { validated_agent_name: e.target.value })}
+                                                                    className="w-full bg-zinc-900 border border-white/10 rounded px-2 py-1 text-[10px] text-white outline-none focus:border-blue-500"
+                                                                >
+                                                                    <option value="">Sélectionner un agent...</option>
+                                                                    {agents.map(agent => (
+                                                                        <option key={agent.id} value={agent.name}>{agent.name} ({agent.country})</option>
+                                                                    ))}
+                                                                    {!agents.find(a => a.name === flow.validated_agent_name) && flow.validated_agent_name && (
+                                                                        <option value={flow.validated_agent_name}>{flow.validated_agent_name}</option>
+                                                                    )}
+                                                                </select>
+                                                            </div>
+                                                        )}
+                                                        {/* Artworks in this flow */}
+                                                        {(() => {
+                                                            const flowArtworks = projectArtworks.filter(a => a.flow_id === flow.id);
+                                                            if (flowArtworks.length === 0) return null;
+                                                            return (
+                                                                <div className="mt-3 pt-3 border-t border-white/5">
+                                                                    <div className="flex items-center gap-1.5 mb-2">
+                                                                        <div className="w-1 h-1 rounded-full bg-blue-500" />
+                                                                        <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">
+                                                                            {flowArtworks.length} Œuvre{flowArtworks.length > 1 ? 's' : ''}
+                                                                        </p>
+                                                                    </div>
+                                                                    <div className="flex flex-wrap gap-1">
+                                                                        {flowArtworks.map(art => (
+                                                                            <span key={art.id} className="text-[9px] bg-white/[0.03] text-zinc-400 px-1.5 py-0.5 rounded border border-white/5">
+                                                                                {art.title}
+                                                                            </span>
+                                                                        ))}
+                                                                    </div>
+                                                                </div>
+                                                            );
+                                                        })()}
+                                                    </div>
+                                                </div>
+                                                <div className="flex items-start gap-3">
+                                                    <span className={cn(
+                                                        "text-[10px] font-black px-2 py-1 rounded transition-colors",
+                                                        flow.status === 'VALIDATED' ? "bg-emerald-500 text-white" :
+                                                            flow.status === 'QUOTE_RECEIVED' ? "bg-emerald-500/10 text-emerald-500" :
+                                                                flow.status === 'AWAITING_QUOTE' ? "bg-amber-500/10 text-amber-500" : "bg-zinc-800 text-zinc-400"
+                                                    )}>
+                                                        {(() => {
+                                                            const statusMap: Record<string, string> = {
+                                                                'VALIDATED': 'VALIDÉ',
+                                                                'QUOTE_RECEIVED': 'DEVIS REÇU',
+                                                                'AWAITING_QUOTE': 'ATTENTE DEVIS',
+                                                                'PENDING_QUOTE': 'EN ATTENTE'
+                                                            };
+                                                            return statusMap[flow.status] || flow.status.replace('_', ' ');
+                                                        })()}
+                                                    </span>
+                                                    <button
+                                                        onClick={(e) => { e.stopPropagation(); deleteFlow(flow.id); }}
+                                                        className="p-2 text-zinc-500 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
+                                                    >
+                                                        <Trash2 size={14} />
+                                                    </button>
+                                                </div>
+                                            </GlassCard>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div className="py-8 text-center rounded-2xl border border-dashed border-white/5 text-zinc-600 italic text-sm">
+                                        Aucun flux logistique planifié.
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Extracted Quotes */}
+                            <div className="flex flex-col gap-6 pb-20">
+                                <h2 className="text-2xl font-bold text-white flex items-center gap-3">
+                                    <Receipt size={24} className="text-emerald-500" />
+                                    Devis Extraits
+                                    <span className="text-sm font-normal text-zinc-500 bg-zinc-900 px-2 py-0.5 rounded-md">
+                                        {projectQuoteLines.length}
+                                    </span>
+                                </h2>
+
+                                {projectQuoteLines.length > 0 ? (
+                                    <div className="space-y-3">
+                                        {projectQuoteLines.map((line) => (
+                                            <div key={line.id} className="group relative flex items-center justify-between p-4 rounded-xl bg-white/[0.02] border border-white/5 hover:border-white/10 transition-colors">
+                                                <div className="flex items-center gap-4">
+                                                    <div className={cn(
+                                                        "h-2 w-2 rounded-full",
+                                                        line.category === 'TRANSPORT' ? "bg-blue-500" :
+                                                            line.category === 'PACKING' ? "bg-amber-500" :
+                                                                line.category === 'CUSTOMS' ? "bg-purple-500" : "bg-zinc-500"
+                                                    )} />
+                                                    <div>
+                                                        <p className="text-sm font-medium text-white">{line.description}</p>
+                                                        <p className="text-[10px] text-zinc-500 font-mono uppercase">
+                                                            {line.agent_name && <span className="text-blue-400 font-bold mr-2">[{line.agent_name}]</span>}
+                                                            {line.category} • QTY: {line.quantity}
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                                <div className="flex items-center gap-4">
+                                                    <div className="text-right font-mono">
+                                                        <p className="text-sm font-bold text-white">{line.total_price} {line.currency}</p>
+                                                    </div>
+                                                    <button
+                                                        onClick={() => deleteQuoteLine(line.id)}
+                                                        className="p-2 text-zinc-600 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
+                                                    >
+                                                        <Trash2 size={14} />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ))}
+                                        <div className="flex justify-end pt-4 border-t border-white/5">
+                                            <div className="text-right">
+                                                <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Total Estimé</p>
+                                                <p className="text-2xl font-black text-white">
+                                                    {totalLogisticsCost.toLocaleString()} <span className="text-sm font-normal text-zinc-500">{projectQuoteLines[0]?.currency || 'EUR'}</span>
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="py-8 text-center rounded-2xl border border-dashed border-white/5 text-zinc-600 italic text-sm">
+                                        Aucun devis extrait pour ce projet.
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )
+                )}
+
+                {activeTab === 'INVENTORY' && (
+                    <div className="space-y-8 animate-in fade-in duration-500">
                         {/* Project Metrics */}
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                             <GlassCard className="p-6 border-white/5 bg-white/[0.02]">
@@ -494,216 +921,87 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
                                         {projectArtworks.length}
                                     </span>
                                 </h2>
-                                <button
-                                    onClick={() => setShowForm(true)}
-                                    className="flex items-center gap-2 rounded-lg bg-zinc-100 px-4 py-2 text-sm font-bold text-black hover:bg-white transition-all"
-                                >
-                                    <Plus size={16} />
-                                    Ajouter une Œuvre
-                                </button>
-                            </div>
-
-                            {projectArtworks.length > 0 ? (
-                                <SmartInventoryTable
-                                    artworks={projectArtworks}
-                                    onUpdate={updateArtwork}
-                                    onDelete={deleteArtwork}
-                                />
-                            ) : (
-                                <div className="flex flex-col items-center justify-center py-20 rounded-2xl border border-dashed border-white/10 bg-white/[0.01]">
-                                    <Box size={40} className="text-zinc-700 mb-4" />
-                                    <p className="text-zinc-500">Aucune œuvre ajoutée à cette exposition.</p>
+                                <div className="flex gap-2">
+                                    <input
+                                        type="file"
+                                        id="excel-upload"
+                                        className="hidden"
+                                        accept=".xlsx,.xls"
+                                        onChange={(e) => {
+                                            const file = e.target.files?.[0];
+                                            if (file) setImportFile(file);
+                                        }}
+                                    />
+                                    <button
+                                        onClick={() => document.getElementById('excel-upload')?.click()}
+                                        className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-sm font-bold text-zinc-400 hover:bg-white/10 transition-all"
+                                    >
+                                        <UploadCloud size={16} />
+                                        Importer (DEBUG)
+                                    </button>
                                     <button
                                         onClick={() => setShowForm(true)}
-                                        className="mt-4 text-sm font-bold text-blue-500 hover:underline"
+                                        className="flex items-center gap-2 rounded-lg bg-zinc-100 px-4 py-2 text-sm font-bold text-black hover:bg-white transition-all shadow-lg"
                                     >
-                                        Ajouter votre première pièce
+                                        <Plus size={16} />
+                                        Ajouter une Œuvre
                                     </button>
                                 </div>
-                            )}
-                        </div>
+                            </div>
 
-                        {/* Logistics Flows */}
-                        <div className="flex flex-col gap-6">
-                            <h2 className="text-2xl font-bold text-white flex items-center gap-3">
-                                <Truck size={24} className="text-blue-500" />
-                                Flux Logistiques
-                                <span className="text-sm font-normal text-zinc-500 bg-zinc-900 px-2 py-0.5 rounded-md">
-                                    {projectFlows.length}
-                                </span>
-                            </h2>
-
-                            {projectFlows.length > 0 ? (
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    {projectFlows.map((flow) => (
-                                        <GlassCard key={flow.id} className="p-4 flex items-center justify-between border-white/10 group">
-                                            <div className="flex items-center gap-4">
-                                                <div className="h-12 w-12 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-500">
-                                                    <Truck size={20} />
-                                                </div>
-                                                <div className="flex-1">
-                                                    <p className="font-bold text-white uppercase text-xs tracking-wider">
-                                                        {(() => {
-                                                            const typeMap: Record<string, string> = {
-                                                                'ART_SHUTTLE': 'NAVETTE ART',
-                                                                'DEDICATED_TRUCK': 'CAMION DÉDIÉ',
-                                                                'AIR_FREIGHT': 'FRET AÉRIEN',
-                                                                'EU_ROAD': 'ROUTE EUROPE',
-                                                                'FRANCE_INTERNAL': 'FRANCE INTERNE'
-                                                            };
-                                                            return typeMap[flow.flow_type] || flow.flow_type.replace('_', ' ');
-                                                        })()}
-                                                    </p>
-                                                    <p className="text-[10px] text-zinc-500">
-                                                        {flow.origin_city || flow.origin_country} → {flow.destination_city || flow.destination_country}
-                                                    </p>
-                                                    {flow.status === 'VALIDATED' && (
-                                                        <div className="mt-2">
-                                                            <div className="flex items-center gap-2 mb-1">
-                                                                <CheckCircle2 size={10} className="text-emerald-500" />
-                                                                <span className="text-[9px] uppercase font-bold text-zinc-600">Agent Validé</span>
-                                                            </div>
-                                                            <select
-                                                                value={flow.validated_agent_name || ""}
-                                                                onChange={(e) => updateFlow(flow.id, { validated_agent_name: e.target.value })}
-                                                                className="w-full bg-zinc-900 border border-white/10 rounded px-2 py-1 text-[10px] text-white outline-none focus:border-blue-500"
-                                                            >
-                                                                <option value="">Sélectionner un agent...</option>
-                                                                {agents.map(agent => (
-                                                                    <option key={agent.id} value={agent.name}>{agent.name} ({agent.country})</option>
-                                                                ))}
-                                                                {!agents.find(a => a.name === flow.validated_agent_name) && flow.validated_agent_name && (
-                                                                    <option value={flow.validated_agent_name}>{flow.validated_agent_name}</option>
-                                                                )}
-                                                            </select>
-                                                        </div>
-                                                    )}
-
-                                                    {flow.status === 'VALIDATED' && (
-                                                        <div className="flex gap-4 mt-2 pt-2 border-t border-white/5 w-full">
-                                                            <div className="flex-1">
-                                                                <label className="text-[9px] uppercase font-bold text-zinc-600 block mb-1">Enlèvement</label>
-                                                                <input
-                                                                    type="date"
-                                                                    value={flow.pickup_date || ''}
-                                                                    onChange={(e) => updateFlow(flow.id, { pickup_date: e.target.value })}
-                                                                    className="w-full bg-transparent text-[10px] text-zinc-300 outline-none border-b border-white/10 focus:border-blue-500 py-0.5"
-                                                                />
-                                                            </div>
-                                                            <div className="flex-1">
-                                                                <label className="text-[9px] uppercase font-bold text-zinc-600 block mb-1">Livraison</label>
-                                                                <input
-                                                                    type="date"
-                                                                    value={flow.delivery_date || ''}
-                                                                    onChange={(e) => updateFlow(flow.id, { delivery_date: e.target.value })}
-                                                                    className="w-full bg-transparent text-[10px] text-zinc-300 outline-none border-b border-white/10 focus:border-blue-500 py-0.5"
-                                                                />
-                                                            </div>
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            </div>
-                                            <div className="flex items-center gap-3">
-                                                <span className={cn(
-                                                    "text-[10px] font-black px-2 py-1 rounded transition-colors",
-                                                    flow.status === 'VALIDATED' ? "bg-emerald-500 text-white" :
-                                                        flow.status === 'QUOTE_RECEIVED' ? "bg-emerald-500/10 text-emerald-500" :
-                                                            flow.status === 'AWAITING_QUOTE' ? "bg-amber-500/10 text-amber-500" : "bg-zinc-800 text-zinc-400"
-                                                )}>
-                                                    {(() => {
-                                                        const statusMap: Record<string, string> = {
-                                                            'VALIDATED': 'VALIDÉ',
-                                                            'QUOTE_RECEIVED': 'DEVIS REÇU',
-                                                            'AWAITING_QUOTE': 'ATTENTE DEVIS',
-                                                            'PENDING_QUOTE': 'EN ATTENTE'
-                                                        };
-                                                        return statusMap[flow.status] || flow.status.replace('_', ' ');
-                                                    })()}
-                                                </span>
-                                                {flow.status === 'PENDING_QUOTE' && (
-                                                    <button
-                                                        onClick={() => updateFlow(flow.id, { status: 'AWAITING_QUOTE' })}
-                                                        className="p-2 text-blue-400 hover:bg-blue-500/10 rounded-lg transition-all"
-                                                        title="Envoyer Demande aux Agents"
-                                                    >
-                                                        <Mail size={14} />
-                                                    </button>
-                                                )}
-                                                <button
-                                                    onClick={() => deleteFlow(flow.id)}
-                                                    className="p-2 text-zinc-500 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
-                                                >
-                                                    <Trash2 size={14} />
-                                                </button>
-                                            </div>
-                                        </GlassCard>
-                                    ))}
-                                </div>
-                            ) : (
-                                <div className="py-8 text-center rounded-2xl border border-dashed border-white/5 text-zinc-600 italic text-sm">
-                                    Aucun flux logistique planifié.
-                                </div>
-                            )}
-                        </div>
-
-                        {/* Extracted Quotes */}
-                        <div className="flex flex-col gap-6 pb-20">
-                            <h2 className="text-2xl font-bold text-white flex items-center gap-3">
-                                <Receipt size={24} className="text-emerald-500" />
-                                Devis Extraits
-                                <span className="text-sm font-normal text-zinc-500 bg-zinc-900 px-2 py-0.5 rounded-md">
-                                    {projectQuoteLines.length}
-                                </span>
-                            </h2>
-
-                            {projectQuoteLines.length > 0 ? (
-                                <div className="space-y-3">
-                                    {projectQuoteLines.map((line) => (
-                                        <div key={line.id} className="group relative flex items-center justify-between p-4 rounded-xl bg-white/[0.02] border border-white/5 hover:border-white/10 transition-colors">
-                                            <div className="flex items-center gap-4">
-                                                <div className={cn(
-                                                    "h-2 w-2 rounded-full",
-                                                    line.category === 'TRANSPORT' ? "bg-blue-500" :
-                                                        line.category === 'PACKING' ? "bg-amber-500" :
-                                                            line.category === 'CUSTOMS' ? "bg-purple-500" : "bg-zinc-500"
-                                                )} />
-                                                <div>
-                                                    <p className="text-sm font-medium text-white">{line.description}</p>
-                                                    <p className="text-[10px] text-zinc-500 font-mono uppercase">
-                                                        {line.agent_name && <span className="text-blue-400 font-bold mr-2">[{line.agent_name}]</span>}
-                                                        {line.category} • QTY: {line.quantity}
-                                                    </p>
-                                                </div>
-                                            </div>
-                                            <div className="flex items-center gap-4">
-                                                <div className="text-right font-mono">
-                                                    <p className="text-sm font-bold text-white">{line.total_price} {line.currency}</p>
-                                                </div>
-                                                <button
-                                                    onClick={() => deleteQuoteLine(line.id)}
-                                                    className="p-2 text-zinc-600 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
-                                                >
-                                                    <Trash2 size={14} />
-                                                </button>
-                                            </div>
+                            <div
+                                onDragOver={handleDragOver}
+                                onDragLeave={handleDragLeave}
+                                onDrop={handleDrop}
+                                className={cn(
+                                    "relative transition-all duration-300 rounded-3xl",
+                                    isDragging ? "ring-2 ring-blue-500 ring-dashed bg-blue-500/5" : ""
+                                )}
+                            >
+                                {isDragging && (
+                                    <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-blue-900/40 backdrop-blur-sm rounded-3xl pointer-events-none">
+                                        <div className="bg-blue-600 p-4 rounded-full mb-4 shadow-2xl animate-bounce">
+                                            <UploadCloud size={32} className="text-white" />
                                         </div>
-                                    ))}
-                                    <div className="flex justify-end pt-4 border-t border-white/5">
-                                        <div className="text-right">
-                                            <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Total Estimé</p>
-                                            <p className="text-2xl font-black text-white">
-                                                {totalLogisticsCost.toLocaleString()} <span className="text-sm font-normal text-zinc-500">{projectQuoteLines[0]?.currency || 'EUR'}</span>
-                                            </p>
-                                        </div>
+                                        <p className="text-xl font-bold text-white">Relâchez pour importer votre Excel</p>
+                                        <p className="text-blue-200">Format .xlsx ou .xls supporté</p>
                                     </div>
-                                </div>
-                            ) : (
-                                <div className="py-8 text-center rounded-2xl border border-dashed border-white/5 text-zinc-600 italic text-sm">
-                                    Aucune donnée de devis importée. Utilisez 'Importer un Devis' pour commencer.
-                                </div>
-                            )}
+                                )}
+                                {projectArtworks.length > 0 ? (
+                                    <InventoryGrid
+                                        artworks={projectArtworks}
+                                        onUpdate={updateArtwork}
+                                        onDelete={deleteArtwork}
+                                        onViewDetail={setSelectedArtwork}
+                                    />
+                                ) : (
+                                    <div className="flex flex-col items-center justify-center py-20 rounded-2xl border border-dashed border-white/10 bg-white/[0.01]">
+                                        <Box size={40} className="text-zinc-700 mb-4" />
+                                        <p className="text-zinc-500">Aucune œuvre ajoutée à cette exposition.</p>
+                                        <button
+                                            onClick={() => setShowForm(true)}
+                                            className="mt-4 text-sm font-bold text-blue-500 hover:underline"
+                                        >
+                                            Ajouter votre première pièce
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
                         </div>
-                    </>
+                    </div>
+                )}
+
+                {activeTab === 'DOCUMENTS' && (
+                    <ProjectDocumentsTab
+                        project={project}
+                        artworks={projectArtworks}
+                        flows={projectFlows}
+                        quoteLines={projectQuoteLines}
+                        onUpdateProject={updateProject}
+                        onAddQuoteLines={addQuoteLines}
+                        onUpdateQuoteLine={updateQuoteLine}
+                        onUpdateFlow={updateFlow}
+                    />
                 )}
             </div>
         </AppLayout >

@@ -1,5 +1,44 @@
 export type ProjectStatus = 'DRAFT' | 'IN_PROGRESS' | 'VALIDATION' | 'FINALIZED';
 
+export interface CCTPConstraints {
+  access: {
+    max_height_meters: number | null;
+    max_length_meters: number | null;
+    tail_lift_required: boolean;
+    elevator_dimensions: { h: number; w: number; d: number } | null;
+    rationale: string;
+  };
+  security: {
+    armored_truck_required: boolean;
+    police_escort_required: boolean;
+    courier_supervision: boolean;
+    tarmac_access: boolean;
+    rationale: string;
+  };
+  packing: {
+    nimp15_mandatory: boolean;
+    acclimatization_hours: number | null;
+    forbidden_materials: string[];
+    rationale: string;
+  };
+  schedule: {
+    night_work: boolean;
+    sunday_work: boolean;
+    hard_deadline: string | null;
+    rationale: string;
+  };
+}
+
+export interface ProjectDocument {
+  id: string;
+  name: string;
+  type: 'EXCEL' | 'PDF' | 'OTHER';
+  size: number;
+  upload_date: string;
+  is_analyzed?: boolean;
+  analysis_result?: any; // For CCTP constraints or other AI results
+}
+
 export interface Project {
   id: string;
   reference_code: string;
@@ -8,12 +47,17 @@ export interface Project {
   status: ProjectStatus;
   currency: string;
   target_budget?: number;
+  start_date?: string;
+  end_date?: string;
+  documents?: ProjectDocument[];
+  constraints?: CCTPConstraints;
   created_at: string;
 }
 
 export interface Artwork {
   id: string;
   project_id: string;
+  flow_id?: string;
   title: string;
   artist: string;
   dimensions_h_cm: number;
@@ -44,7 +88,7 @@ export interface Artwork {
   created_at: string;
 }
 
-export type FlowType = 'FRANCE_INTERNAL' | 'EU_ROAD' | 'AIR_FREIGHT' | 'DEDICATED_TRUCK' | 'ART_SHUTTLE';
+export type FlowType = 'FRANCE_ROAD' | 'EU_ROAD' | 'INTL_AIR' | 'DEDICATED_TRUCK' | 'ART_SHUTTLE';
 export type FlowStatus = 'PENDING_QUOTE' | 'AWAITING_QUOTE' | 'QUOTE_RECEIVED' | 'VALIDATED';
 
 export interface LogisticsFlow {
@@ -127,7 +171,7 @@ export interface QuoteLine {
   unit_price: number;
   total_price: number;
   currency: string;
-  source: 'CALCULATION' | 'AGENT' | 'MANUAL';
+  source: 'CALCULATION' | 'AGENT' | 'MANUAL' | 'ESTIMATION';
   agent_name?: string;
   created_at: string;
 }
@@ -189,3 +233,26 @@ export interface LogisticsConfig {
   ancillary_cost_templates: AncillaryCostTemplate[];
 }
 
+// AI Logic Types
+export interface LogisticsAlert {
+  level: 'CRITICAL' | 'WARNING' | 'INFO';
+  message: string;
+}
+
+export interface LogisticsPlanResult {
+  recommended_method: 'ART_SHUTTLE' | 'DEDICATED_TRUCK' | 'AIR_FREIGHT';
+  rationale: string;
+  estimated_lead_time: string;
+  required_crate_level: 'MUSÉE' | 'VOYAGE';
+  risk_assessment: 'LOW' | 'MEDIUM' | 'HIGH';
+  alerts?: LogisticsAlert[];
+  split_recommendation?: {
+    required: boolean;
+    reason: string;
+    shipments: {
+      id: string;
+      items: string[];
+      value: number;
+    }[];
+  };
+}

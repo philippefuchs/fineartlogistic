@@ -7,6 +7,7 @@ import { Search, Package, Box, Filter } from "lucide-react";
 import { useState } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import { InventoryGrid } from "@/components/InventoryGrid";
 
 export default function InventoryPage() {
     const { artworks, projects } = useProjectStore();
@@ -60,46 +61,9 @@ export default function InventoryPage() {
 
                 {/* Artwork Grid/Table */}
                 {filteredArtworks.length > 0 ? (
-                    <div className="space-y-4">
-                        <div className="hidden md:grid grid-cols-12 gap-4 px-6 text-[10px] font-bold uppercase tracking-widest text-zinc-500">
-                            <div className="col-span-4">Œuvre</div>
-                            <div className="col-span-2">Dimensions</div>
-                            <div className="col-span-2">Poids</div>
-                            <div className="col-span-2">Valeur</div>
-                            <div className="col-span-2">Projet</div>
-                        </div>
-
-                        {filteredArtworks.map(artwork => (
-                            <GlassCard key={artwork.id} className="p-4 grid grid-cols-1 md:grid-cols-12 gap-4 items-center border-white/5 bg-white/[0.02] hover:bg-white/[0.04] transition-colors group">
-                                <div className="col-span-4 flex items-center gap-4">
-                                    <div className="h-12 w-12 rounded-lg bg-zinc-800 flex items-center justify-center text-zinc-600 group-hover:bg-zinc-700 group-hover:text-zinc-400 transition-colors">
-                                        <Package size={20} />
-                                    </div>
-                                    <div>
-                                        <p className="font-bold text-white text-lg">{artwork.title}</p>
-                                        <p className="text-sm text-zinc-500">{artwork.artist}</p>
-                                    </div>
-                                </div>
-                                <div className="col-span-2 text-sm text-zinc-400 font-mono">
-                                    {artwork.dimensions_h_cm}x{artwork.dimensions_w_cm}x{artwork.dimensions_d_cm} cm
-                                </div>
-                                <div className="col-span-2 text-sm text-zinc-400">
-                                    {artwork.weight_kg} kg
-                                </div>
-                                <div className="col-span-2 text-sm text-white font-bold">
-                                    {artwork.insurance_value.toLocaleString()} EUR
-                                </div>
-                                <div className="col-span-2">
-                                    <Link
-                                        href={`/projects/${artwork.project_id}`}
-                                        className="inline-block px-3 py-1 rounded-full bg-blue-500/10 text-blue-400 text-xs font-bold hover:bg-blue-500/20 transition-colors"
-                                    >
-                                        {getProjectName(artwork.project_id)}
-                                    </Link>
-                                </div>
-                            </GlassCard>
-                        ))}
-                    </div>
+                    <InventoryGrid
+                        artworks={filteredArtworks}
+                    />
                 ) : (
                     <div className="flex flex-col items-center justify-center py-24 rounded-3xl border border-dashed border-white/10 bg-white/[0.02]">
                         <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-zinc-900 text-zinc-600">

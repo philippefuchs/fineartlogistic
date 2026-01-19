@@ -1,17 +1,18 @@
 "use client";
 
-import { QuoteLine, LogisticsFlow } from "@/types";
+import { QuoteLine, LogisticsFlow, Artwork } from "@/types";
 import { GlassCard } from "./ui/GlassCard";
-import { CheckCircle2, TrendingUp, TrendingDown, User, Truck } from "lucide-react";
+import { CheckCircle2, TrendingUp, TrendingDown, User, Truck, Box } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface QuoteComparisonProps {
     flows: LogisticsFlow[];
     quoteLines: QuoteLine[];
+    artworks: Artwork[];
     onValidateAgent: (flowId: string, agentName: string) => void;
 }
 
-export function QuoteComparison({ flows, quoteLines, onValidateAgent }: QuoteComparisonProps) {
+export function QuoteComparison({ flows, quoteLines, artworks, onValidateAgent }: QuoteComparisonProps) {
     // Group quotes by Agent
     const agents = Array.from(new Set(quoteLines.map(l => l.agent_name).filter(Boolean))) as string[];
 
@@ -37,8 +38,33 @@ export function QuoteComparison({ flows, quoteLines, onValidateAgent }: QuoteCom
                                 <Truck size={20} />
                             </div>
                             <div>
-                                <h3 className="text-xl font-bold text-white capitalize">{flow.flow_type.replace('_', ' ')}</h3>
+                                <h3 className="text-xl font-bold text-white uppercase">
+                                    {(() => {
+                                        const typeMap: Record<string, string> = {
+                                            'FRANCE_ROAD': "🇫🇷 Flux France (Ramassage)",
+                                            'EU_ROAD': "🇪🇺 Flux Europe Routier",
+                                            'INTL_AIR': `✈️ Flux ${flow.origin_country} (Import)`,
+                                            'ART_SHUTTLE': 'NAVETTE ART',
+                                            'DEDICATED_TRUCK': 'CAMION DÉDIÉ'
+                                        };
+                                        return typeMap[flow.flow_type] || flow.flow_type.replace('_', ' ');
+                                    })()}
+                                </h3>
                                 <p className="text-xs text-zinc-500">{flow.origin_country} → {flow.destination_country}</p>
+                                {(() => {
+                                    const flowArtworks = artworks.filter(a => a.flow_id === flow.id);
+                                    if (flowArtworks.length === 0) return null;
+                                    return (
+                                        <div className="flex flex-wrap gap-2 mt-2">
+                                            {flowArtworks.map(art => (
+                                                <div key={art.id} className="flex items-center gap-1 bg-white/[0.03] border border-white/5 px-2 py-0.5 rounded text-[10px] text-zinc-400">
+                                                    <Box size={10} className="text-blue-500" />
+                                                    {art.title}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    );
+                                })()}
                             </div>
                         </div>
 

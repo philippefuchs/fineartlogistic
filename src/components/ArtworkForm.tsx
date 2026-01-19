@@ -8,6 +8,7 @@ import { X, Ruler, Weight, Tag, Sparkles, Loader2, Box, AlertTriangle } from "lu
 import { calculatePacking, getCrateTypeLabel, ArtworkInput } from "@/services/packingEngine";
 import { calculateCost, formatCostBreakdown } from "@/services/costCalculator";
 import { cn } from "@/lib/utils";
+import { generateId } from "@/lib/generateId";
 
 interface ArtworkFormProps {
     projectId: string;
@@ -91,7 +92,7 @@ export function ArtworkForm({ projectId, onClose, onSave }: ArtworkFormProps) {
         e.preventDefault();
         onSave({
             ...formData,
-            id: crypto.randomUUID(),
+            id: generateId(),
             created_at: new Date().toISOString(),
         } as Artwork);
     };

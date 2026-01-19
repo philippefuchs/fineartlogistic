@@ -113,7 +113,7 @@ export function calculateTransport(
     let baseCost: number;
     let distanceCost = 0;
 
-    if (totalVolume < 12) {
+    if (totalVolume < 15) {
         // Camion 20m³ (Forfait Journée)
         vehicleType = 'CAMION_20M3';
         baseCost = config.FORFAIT_CAMION_20M3;

@@ -44,42 +44,38 @@ export function calculatePacking(artwork: ArtworkInput): PackingResult {
     const config = getPricingConfig();
 
     // RÈGLE 1: Calcul des marges de sécurité (Tampon Mousse)
-    const foamThickness = artwork.fragility >= 4
-        ? config.EPAISSEUR_MOUSSE_FRAGILE
-        : config.EPAISSEUR_MOUSSE_STANDARD;
+    // V2: Tableau (+10cm total = 5cm par côté), Sculpture (+20cm total = 10cm par côté)
+    const foamThickness = artwork.typology === 'SCULPTURE' || artwork.typology === 'INSTALLATION'
+        ? 100 // 10cm
+        : 50;  // 5cm
 
     // Dimensions internes de la caisse (œuvre + mousse)
-    let internal_h = artwork.h_cm * 10 + (2 * foamThickness); // Convert cm to mm
+    let internal_h = artwork.h_cm * 10 + (2 * foamThickness);
     let internal_w = artwork.w_cm * 10 + (2 * foamThickness);
     let internal_d = artwork.d_cm * 10 + (2 * foamThickness);
 
-    // RÈGLE 2: Sélection du Type de Fabrication (Arbre de décision)
+    // RÈGLE 2: Sélection du Type de Fabrication (V2 decision tree)
     let crateType: CrateType;
     let needsKlebart = false;
     let klebartThickness = 0;
 
-    // Cas 1: Petit objet léger → Soft Pack
-    if (artwork.weight_kg < 5 && artwork.typology === 'OBJET') {
-        crateType = 'SOFT_PACK';
-    }
-    // Cas 2: Tableau avec cadre fragile → Klébart + T2
-    else if (artwork.typology === 'TABLEAU' && artwork.hasFragileFrame) {
+    const maxDim_cm = Math.max(artwork.h_cm, artwork.w_cm, artwork.d_cm);
+
+    // CRITÈRE V2: Poids > 80kg OU Dimension > 200cm -> T2
+    const isHeavyOrLarge = artwork.weight_kg > 80 || maxDim_cm > 200;
+
+    if (isHeavyOrLarge) {
+        crateType = 'T2_MUSEE';
+    } else if (artwork.typology === 'TABLEAU' && artwork.hasFragileFrame) {
         needsKlebart = true;
         klebartThickness = config.EPAISSEUR_KLEBART;
-
-        // Révision des dimensions internes (ajout du Klébart)
         internal_h += klebartThickness;
         internal_w += klebartThickness;
         internal_d += klebartThickness;
-
         crateType = 'T2_MUSEE';
-    }
-    // Cas 3: Fragilité élevée ou haute valeur → Caisse Musée
-    else if (artwork.fragility >= 4) {
+    } else if (artwork.fragility >= 4) {
         crateType = 'T2_MUSEE';
-    }
-    // Cas 4: Standard → Caisse Galerie
-    else {
+    } else {
         crateType = 'T1_GALERIE';
     }
 

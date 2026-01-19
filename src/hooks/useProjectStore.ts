@@ -20,6 +20,7 @@ interface ProjectState {
     updateFlow: (id: string, updates: Partial<LogisticsFlow>) => void;
     deleteFlow: (id: string) => void;
     addQuoteLines: (lines: QuoteLine[]) => void;
+    updateQuoteLine: (id: string, updates: Partial<QuoteLine>) => void;
     deleteQuoteLine: (id: string) => void;
     addTask: (task: Task) => void;
     toggleTask: (id: string) => void;
@@ -57,12 +58,48 @@ export const useProjectStore = create<ProjectState>()(
             deleteProject: (id) => set((state) => ({
                 projects: state.projects.filter((p) => p.id !== id),
             })),
-            addArtwork: (artwork) => set((state) => ({
-                artworks: [...state.artworks, artwork]
-            })),
-            updateArtwork: (id, updates) => set((state) => ({
-                artworks: state.artworks.map((a) => (a.id === id ? { ...a, ...updates } : a)),
-            })),
+            addArtwork: (artwork) => {
+                console.log("💾 addArtwork called for:", artwork.title, "flow_id:", artwork.flow_id);
+                return set((state) => ({
+                    artworks: [...state.artworks, artwork]
+                }));
+            },
+            updateArtwork: (id, updates) => set((state) => {
+                const newArtworks = state.artworks.map((a) => {
+                    if (a.id === id) {
+                        const updated = { ...a, ...updates };
+                        // If dimensions changed, recalculate
+                        if (updates.dimensions_h_cm || updates.dimensions_w_cm || updates.dimensions_d_cm || updates.typology || updates.weight_kg) {
+                            const { calculatePacking, getCrateTypeLabel } = require("@/services/packingEngine");
+                            const { calculateCost } = require("@/services/costCalculator");
+
+                            const packingInput = {
+                                h_cm: updated.dimensions_h_cm,
+                                w_cm: updated.dimensions_w_cm,
+                                d_cm: updated.dimensions_d_cm,
+                                weight_kg: updated.weight_kg,
+                                typology: updated.typology as any,
+                                fragility: (updated.fragility || 2) as any,
+                                hasFragileFrame: updated.hasFragileFrame
+                            };
+
+                            const packing = calculatePacking(packingInput);
+                            const cost = calculateCost(packing);
+
+                            updated.crate_specs = {
+                                crate_type: packing.crateType === 'T2_MUSEE' ? 'MUSÉE' : 'VOYAGE',
+                                internal_dimensions: { h: packing.internal_h_mm, w: packing.internal_w_mm, d: packing.internal_d_mm },
+                                external_dimensions: { h: packing.external_h_mm, w: packing.external_w_mm, d: packing.external_d_mm }
+                            };
+                            updated.recommended_crate = getCrateTypeLabel(packing.crateType);
+                            updated.crate_estimated_cost = Math.ceil(cost.sellingPrice_eur);
+                        }
+                        return updated;
+                    }
+                    return a;
+                });
+                return { artworks: newArtworks };
+            }),
             deleteArtwork: (id) => set((state) => ({
                 artworks: state.artworks.filter((a) => a.id !== id),
             })),
@@ -77,6 +114,9 @@ export const useProjectStore = create<ProjectState>()(
             })),
             addQuoteLines: (lines) => set((state) => ({
                 quoteLines: [...state.quoteLines, ...lines]
+            })),
+            updateQuoteLine: (id, updates) => set((state) => ({
+                quoteLines: state.quoteLines.map((l) => (l.id === id ? { ...l, ...updates } : l)),
             })),
             deleteQuoteLine: (id) => set((state) => ({
                 quoteLines: state.quoteLines.filter((l) => l.id !== id),

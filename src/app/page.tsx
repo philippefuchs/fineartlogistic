@@ -6,15 +6,19 @@ import { ProjectCard } from "@/components/ProjectCard";
 import { useProjectStore } from "@/hooks/useProjectStore";
 import { Plus, Search, Filter } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
-import { Project } from "@/types";
+import { Project, Artwork } from "@/types";
 import { generateId } from "@/lib/generateId";
 
 import { generateAppelOffre } from "@/services/demoDataService";
 import { Sparkles } from "lucide-react";
+import { ProjectWizardModal } from "@/components/ProjectWizardModal";
+import { useRouter } from "next/navigation";
 
 export default function Home() {
+  const router = useRouter();
   const { projects, addProject, deleteProject, updateProject, addArtwork, addFlow, addQuoteLines } = useProjectStore();
   const [searchTerm, setSearchTerm] = useState("");
+  const [showWizard, setShowWizard] = useState(false);
 
   const handleGenerateDemo = () => {
     const { project, artworks, flows, quoteLines } = generateAppelOffre();
@@ -29,16 +33,76 @@ export default function Home() {
   };
 
   const handleCreateProject = () => {
-    const newProject: Project = {
-      id: generateId(),
-      reference_code: `EXP-2026-${String(projects.length + 1).padStart(3, '0')}`,
-      name: "Nouveau Projet d'Exposition",
-      organizing_museum: "The Metropolitan Museum of Art",
-      status: "DRAFT",
-      currency: "EUR",
-      created_at: new Date().toISOString(),
-    };
-    addProject(newProject);
+    setShowWizard(true);
+  };
+
+  const onWizardComplete = (project: Project, artworks: Artwork[]) => {
+    const { getGeoEnrichedData } = require("@/services/geoService");
+
+    // Avoid double submission
+    if (projects.find(p => p.id === project.id)) return;
+
+    addProject(project);
+
+    // --- STEP A & B: Normalization & Clustering ---
+    // Group artworks by CountryCode
+    const countryGroups = new Map<string, Artwork[]>();
+    artworks.forEach(art => {
+      const geo = getGeoEnrichedData(art.lender_city, art.lender_country);
+      const key = geo.countryCode;
+      if (!countryGroups.has(key)) {
+        countryGroups.set(key, []);
+      }
+      countryGroups.get(key)!.push(art);
+    });
+
+    const now = new Date().toISOString();
+    const flowMap = new Map<string, string>();
+
+    // Intelligent destination detection (Organizer Country)
+    const organizerGeo = getGeoEnrichedData("", project.organizing_museum || "Paris");
+    const organizerCountry = organizerGeo.countryCode;
+
+    // --- STEP C: Flow Creation & Type Determination ---
+    countryGroups.forEach((groupArtworks, countryCode) => {
+      const firstArt = groupArtworks[0];
+      const geo = getGeoEnrichedData(firstArt.lender_city, firstArt.lender_country);
+
+      let flowType: any = 'INTL_AIR';
+      if (countryCode === organizerCountry) {
+        flowType = 'FRANCE_ROAD';
+      } else if (geo.isEU) {
+        flowType = 'EU_ROAD';
+      } else if (countryCode === 'GB') {
+        flowType = 'INTL_AIR';
+      }
+
+      const flowId = generateId();
+      addFlow({
+        id: flowId,
+        project_id: project.id,
+        origin_country: geo.countryName,
+        origin_city: groupArtworks.length > 1 ? "Plusieurs villes" : firstArt.lender_city,
+        destination_country: organizerGeo.countryName,
+        destination_city: organizerGeo.countryCode === 'US' ? 'New York' : 'Paris',
+        flow_type: flowType,
+        status: 'PENDING_QUOTE',
+        created_at: now
+      });
+
+      flowMap.set(countryCode, flowId);
+
+      // Assign flowId to all artworks in this cluster
+      groupArtworks.forEach(art => {
+        art.flow_id = flowId;
+      });
+    });
+
+    // Add artworks
+    artworks.forEach(art => addArtwork(art));
+
+    setShowWizard(false);
+    router.push(`/projects/${project.id}`);
   };
 
   const handleEditProject = (project: Project) => {
@@ -59,6 +123,12 @@ export default function Home() {
 
   return (
     <AppLayout>
+      {showWizard && (
+        <ProjectWizardModal
+          onClose={() => setShowWizard(false)}
+          onComplete={onWizardComplete}
+        />
+      )}
       <div className="flex flex-col gap-8">
         {/* Hero / Header Section */}
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">

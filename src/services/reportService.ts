@@ -362,3 +362,201 @@ export const exportCompleteQuoteToPDF = (
         alert("Erreur lors de la génération du devis PDF");
     }
 };
+
+export const exportCCTPSummary = (project: Project) => {
+    if (!project.constraints) {
+        alert("Aucune contrainte CCTP détectée pour ce projet.");
+        return;
+    }
+
+    try {
+        const doc = new jsPDF();
+        const pageWidth = doc.internal.pageSize.width;
+
+        // Header
+        doc.setFillColor(15, 23, 42);
+        doc.rect(0, 0, pageWidth, 40, 'F');
+
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(22);
+        doc.setFont('helvetica', 'bold');
+        doc.text('GROSPIRON FINE ART', 15, 20);
+
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'normal');
+        doc.text(`SYNTHÈSE CCTP: ${project.name}`, 15, 30);
+        doc.text(`REF: ${project.reference_code}`, pageWidth - 15, 30, { align: 'right' });
+
+        // Title
+        doc.setTextColor(15, 23, 42);
+        doc.setFontSize(16);
+        doc.setFont('helvetica', 'bold');
+        doc.text('MATRICE DE CONTRAINTES TECHNIQUES', 15, 55);
+
+        let yPos = 70;
+
+        // Access Constraints
+        doc.setFontSize(12);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(59, 130, 246); // Blue
+        doc.text('ACCÈS & VÉHICULES', 15, yPos);
+        yPos += 8;
+
+        doc.setFontSize(9);
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(60, 60, 60);
+
+        const accessData = [];
+        if (project.constraints.access.max_height_meters) {
+            accessData.push(['Hauteur Max', `${project.constraints.access.max_height_meters}m`]);
+        }
+        if (project.constraints.access.max_length_meters) {
+            accessData.push(['Longueur Max', `${project.constraints.access.max_length_meters}m`]);
+        }
+        if (project.constraints.access.tail_lift_required) {
+            accessData.push(['Hayon', 'REQUIS']);
+        }
+        if (project.constraints.access.elevator_dimensions) {
+            const { h, w, d } = project.constraints.access.elevator_dimensions;
+            accessData.push(['Monte-Charge', `${h}m x ${w}m x ${d}m`]);
+        }
+
+        if (accessData.length > 0) {
+            autoTable(doc, {
+                startY: yPos,
+                body: accessData,
+                theme: 'plain',
+                styles: { fontSize: 9, cellPadding: 2 },
+                columnStyles: { 0: { fontStyle: 'bold', cellWidth: 40 } }
+            });
+            yPos = (doc as any).lastAutoTable.finalY + 5;
+        }
+
+        doc.setFontSize(8);
+        doc.setFont('helvetica', 'italic');
+        doc.setTextColor(100);
+        const accessText = doc.splitTextToSize(project.constraints.access.rationale, pageWidth - 30);
+        doc.text(accessText, 15, yPos);
+        yPos += accessText.length * 5 + 10;
+
+        // Security Constraints
+        doc.setFontSize(12);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(251, 191, 36); // Amber
+        doc.text('SÉCURITÉ & SÛRETÉ', 15, yPos);
+        yPos += 8;
+
+        const securityData = [];
+        if (project.constraints.security.armored_truck_required) {
+            securityData.push(['Camion Blindé', 'OBLIGATOIRE']);
+        }
+        if (project.constraints.security.police_escort_required) {
+            securityData.push(['Escorte Police', 'REQUISE']);
+        }
+        if (project.constraints.security.courier_supervision) {
+            securityData.push(['Convoyage', 'REQUIS']);
+        }
+        if (project.constraints.security.tarmac_access) {
+            securityData.push(['Accès Tarmac', 'REQUIS']);
+        }
+
+        if (securityData.length > 0) {
+            autoTable(doc, {
+                startY: yPos,
+                body: securityData,
+                theme: 'plain',
+                styles: { fontSize: 9, cellPadding: 2 },
+                columnStyles: { 0: { fontStyle: 'bold', cellWidth: 40 } }
+            });
+            yPos = (doc as any).lastAutoTable.finalY + 5;
+        }
+
+        doc.setFontSize(8);
+        doc.setFont('helvetica', 'italic');
+        doc.setTextColor(100);
+        const securityText = doc.splitTextToSize(project.constraints.security.rationale, pageWidth - 30);
+        doc.text(securityText, 15, yPos);
+        yPos += securityText.length * 5 + 10;
+
+        // Packing Constraints
+        doc.setFontSize(12);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(34, 197, 94); // Emerald
+        doc.text('CONSERVATION & CLIMAT', 15, yPos);
+        yPos += 8;
+
+        const packingData = [];
+        if (project.constraints.packing.nimp15_mandatory) {
+            packingData.push(['NIMP15', 'OBLIGATOIRE']);
+        }
+        if (project.constraints.packing.acclimatization_hours) {
+            packingData.push(['Acclimatation', `${project.constraints.packing.acclimatization_hours}h`]);
+        }
+        if (project.constraints.packing.forbidden_materials.length > 0) {
+            packingData.push(['Matériaux Interdits', project.constraints.packing.forbidden_materials.join(', ')]);
+        }
+
+        if (packingData.length > 0) {
+            autoTable(doc, {
+                startY: yPos,
+                body: packingData,
+                theme: 'plain',
+                styles: { fontSize: 9, cellPadding: 2 },
+                columnStyles: { 0: { fontStyle: 'bold', cellWidth: 40 } }
+            });
+            yPos = (doc as any).lastAutoTable.finalY + 5;
+        }
+
+        doc.setFontSize(8);
+        doc.setFont('helvetica', 'italic');
+        doc.setTextColor(100);
+        const packingText = doc.splitTextToSize(project.constraints.packing.rationale, pageWidth - 30);
+        doc.text(packingText, 15, yPos);
+        yPos += packingText.length * 5 + 10;
+
+        // Schedule Constraints
+        doc.setFontSize(12);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(168, 85, 247); // Purple
+        doc.text('PLANNING & HORAIRES', 15, yPos);
+        yPos += 8;
+
+        const scheduleData = [];
+        if (project.constraints.schedule.night_work) {
+            scheduleData.push(['Travail de Nuit', 'AUTORISÉ']);
+        }
+        if (project.constraints.schedule.sunday_work) {
+            scheduleData.push(['Dimanche/Férié', 'AUTORISÉ']);
+        }
+        if (project.constraints.schedule.hard_deadline) {
+            scheduleData.push(['Échéance Impérative', new Date(project.constraints.schedule.hard_deadline).toLocaleDateString('fr-FR')]);
+        }
+
+        if (scheduleData.length > 0) {
+            autoTable(doc, {
+                startY: yPos,
+                body: scheduleData,
+                theme: 'plain',
+                styles: { fontSize: 9, cellPadding: 2 },
+                columnStyles: { 0: { fontStyle: 'bold', cellWidth: 40 } }
+            });
+            yPos = (doc as any).lastAutoTable.finalY + 5;
+        }
+
+        doc.setFontSize(8);
+        doc.setFont('helvetica', 'italic');
+        doc.setTextColor(100);
+        const scheduleText = doc.splitTextToSize(project.constraints.schedule.rationale, pageWidth - 30);
+        doc.text(scheduleText, 15, yPos);
+
+        // Footer
+        doc.setFontSize(8);
+        doc.setTextColor(150);
+        doc.text('Généré par la Plateforme Grospiron Fine Art', pageWidth / 2, 285, { align: 'center' });
+
+        doc.save(`${project.reference_code}_CCTP_Summary.pdf`);
+    } catch (error) {
+        console.error("PDF Generation Error:", error);
+        alert(`Erreur lors de la génération du PDF: ${error instanceof Error ? error.message : String(error)}`);
+    }
+};
