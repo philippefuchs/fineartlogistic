@@ -34,9 +34,9 @@ export const generateAppelOffre = () => {
         const flowId = generateSimpleId();
 
         // Define flow type based on country
-        let flowType: FlowType = 'FRANCE_INTERNAL';
+        let flowType: FlowType = 'FRANCE_ROAD';
         if (country.name === 'États-Unis' || country.name === 'Japon') {
-            flowType = 'AIR_FREIGHT';
+            flowType = 'INTL_AIR';
         }
 
         const flow: LogisticsFlow = {
@@ -126,7 +126,7 @@ export const generateAppelOffre = () => {
         }
 
         // Add dummy transport line for the flow
-        const transportCost = flowType === 'AIR_FREIGHT' ? 12000 : 1500;
+        const transportCost = flowType === 'INTL_AIR' ? 12000 : 1500;
         quoteLines.push({
             id: generateSimpleId(),
             project_id: projectId,
