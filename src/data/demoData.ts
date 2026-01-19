@@ -186,7 +186,7 @@ export const DEMO_FLOWS: LogisticsFlow[] = [
         project_id: "demo-project-world-tour",
         origin_country: "France",
         destination_country: "USA",
-        flow_type: "AIR_FREIGHT",
+        flow_type: "INTL_AIR",
         status: "VALIDATED",
         validated_agent_name: "Masterpiece Intl",
         created_at: new Date().toISOString()
@@ -196,7 +196,7 @@ export const DEMO_FLOWS: LogisticsFlow[] = [
         project_id: "demo-project-world-tour",
         origin_country: "Pays-Bas",
         destination_country: "USA",
-        flow_type: "AIR_FREIGHT",
+        flow_type: "INTL_AIR",
         status: "QUOTE_RECEIVED",
         created_at: new Date().toISOString()
     },
@@ -205,7 +205,7 @@ export const DEMO_FLOWS: LogisticsFlow[] = [
         project_id: "demo-project-world-tour",
         origin_country: "Allemagne",
         destination_country: "Japon",
-        flow_type: "AIR_FREIGHT",
+        flow_type: "INTL_AIR",
         status: "AWAITING_QUOTE",
         created_at: new Date().toISOString()
     },
