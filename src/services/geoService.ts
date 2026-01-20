@@ -40,7 +40,6 @@ const GEO_MAPPING: Record<string, string> = {
     'amsterdam': 'NL',
     'bourg-en-bresse': 'FR',
     'bourg en bresse': 'FR',
-    'bourg en bresse': 'FR',
     'moulins': 'FR',
     'anvers': 'BE',
     'antwerp': 'BE',
