@@ -26,6 +26,7 @@ import { generateFlowsFromArtworks } from "@/services/flowGenerator";
 
 import { InventoryGrid } from "@/components/InventoryGrid";
 import { ArtworkDetailModal } from "@/components/ArtworkDetailModal";
+import { CompleteQuoteModal } from "@/components/CompleteQuoteModal";
 
 export default function ProjectPage({ params }: { params: Promise<{ id: string }> }) {
     const { id } = use(params);
