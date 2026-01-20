@@ -122,7 +122,7 @@ export function InventoryGrid({ artworks, onUpdate, onDelete, onViewDetail }: In
             cell: info => (
                 <div className="flex items-center gap-3 py-1">
                     <div className="h-8 w-8 rounded bg-zinc-800 flex flex-shrink-0 items-center justify-center text-[10px] text-zinc-600 font-bold border border-white/5">
-                        {info.getValue().slice(0, 2).toUpperCase()}
+                        {(info.getValue() || "").slice(0, 2).toUpperCase()}
                     </div>
                     <div className="flex-1 min-w-0">
                         <p className="font-bold text-white truncate text-xs">{info.getValue()}</p>

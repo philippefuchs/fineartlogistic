@@ -4,9 +4,10 @@
 export interface PricingConfig {
     // Matériaux
     PRIX_BOIS_M2: number;           // €/m² (Contreplaqué peuplier)
-    PRIX_MOUSSE_M2: number;         // €/m² (Plastazote, Ethafoam)
+    PRIX_MOUSSE_M3: number;         // €/m³ (Plastazote, Ethafoam)
     PRIX_KLEBART_ML: number;        // €/mètre linéaire (Travel Frame)
     FORFAIT_QUINCAILLERIE: number;  // € (Vis, charnières, poignées)
+
 
     // Main d'œuvre
     TAUX_HORAIRE_ATELIER: number;   // €/h (Fabrication)
@@ -39,7 +40,8 @@ export interface PricingConfig {
 export const DEFAULT_PRICING: PricingConfig = {
     // Matériaux (Prix France 2026)
     PRIX_BOIS_M2: 35,
-    PRIX_MOUSSE_M2: 25,
+    PRIX_MOUSSE_M3: 400, // Prix par m3 pour mousse haute densité (ex: 25€/m2 en 50mm -> 500€/m3)
+
     PRIX_KLEBART_ML: 15,
     FORFAIT_QUINCAILLERIE: 50,
 

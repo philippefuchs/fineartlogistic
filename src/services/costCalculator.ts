@@ -51,10 +51,7 @@ export function calculateCost(packing: PackingResult): CostBreakdown {
     const internalVolume_m3 = h_int_m * w_int_m * d_int_m;
     const artworkVolume_m3 = (packing.internal_h_mm - 2 * packing.foamThickness_mm) * (packing.internal_w_mm - 2 * packing.foamThickness_mm) * (packing.internal_d_mm - 2 * packing.foamThickness_mm) / 1_000_000_000;
     const foamVolume_m3 = internalVolume_m3 - artworkVolume_m3;
-    const foamCost = foamVolume_m3 * config.PRIX_MOUSSE_M2 * 10; // Assuming PRIX_MOUSSE_M2 is actually for volume in V2 or needs conversion
-    // Actually, let's follow the PRIX_MOUSSE_M2 as a M3 price if it's volume based?
-    // Let's use a reasonable M3 price if not defined.
-    const foamCost_eur = foamVolume_m3 * 400; // Estimated 400€/m3 for high density foam
+    const foamCost_eur = foamVolume_m3 * config.PRIX_MOUSSE_M3;
 
     // Quincaillerie (forfait)
     const hardwareCost = config.FORFAIT_QUINCAILLERIE;
@@ -66,7 +63,7 @@ export function calculateCost(packing: PackingResult): CostBreakdown {
         const linearMeters = 2 * (h_int_m + w_int_m);
         klebartCost = linearMeters * config.PRIX_KLEBART_ML;
 
-        // Temps supplémentaire pour fabrication Klébart (estimé 1h)
+        // Temps supplémentaire pour fabrication Klébart (estimé 1h manuel ou configurable?)
         klebartCost += 1 * config.TAUX_HORAIRE_ATELIER;
     }
 
@@ -75,12 +72,14 @@ export function calculateCost(packing: PackingResult): CostBreakdown {
     // ÉTAPE 3: Calcul du Temps Atelier (Main d'œuvre)
     const volume_m3 = packing.externalVolume_m3;
 
-    // V2 Labor Rules: <1m3 = 2h, >1m3 = 4h
+    // V2 Labor Rules: Using Config instead of hardcoded 2/4
     let fabricationTime: number;
-    if (volume_m3 < 15) { // Updated threshold to 15m3
-        fabricationTime = 2;
+    if (volume_m3 < 1) {
+        fabricationTime = config.TEMPS_BASE_PETIT;
+    } else if (volume_m3 < 3) {
+        fabricationTime = config.TEMPS_BASE_MOYEN;
     } else {
-        fabricationTime = 4;
+        fabricationTime = config.TEMPS_BASE_GRAND;
     }
 
     // Coefficient pour Caisse Musée (plus de finitions)
@@ -103,18 +102,19 @@ export function calculateCost(packing: PackingResult): CostBreakdown {
     return {
         woodSurface_m2,
         woodCost_eur: woodCost,
-        foamSurface_m2: foamVolume_m3 / 0.05, // Approximation for interface consistency
+        foamSurface_m2: foamVolume_m3 / (config.EPAISSEUR_MOUSSE_STANDARD / 1000), // Calculation helper
         foamCost_eur,
         hardwareCost_eur: hardwareCost,
         klebartCost_eur: klebartCost,
         fabricationTime_hours: fabricationTime,
         laborCost_eur: laborCost,
-        totalMaterialCost_eur: woodCost + foamCost_eur + hardwareCost + klebartCost,
+        totalMaterialCost_eur: totalMaterialCost,
         totalLaborCost_eur: laborCost,
-        factoryCost_eur: woodCost + foamCost_eur + hardwareCost + klebartCost + laborCost,
+        factoryCost_eur: factoryCost,
         margin,
-        sellingPrice_eur: (woodCost + foamCost_eur + hardwareCost + klebartCost + laborCost) * margin
+        sellingPrice_eur: sellingPrice
     };
+
 }
 
 /**
@@ -124,7 +124,8 @@ export function formatCostBreakdown(cost: CostBreakdown): string {
     return `
 Matériaux:
 - Bois: ${cost.woodSurface_m2.toFixed(2)} m² × ${getPricingConfig().PRIX_BOIS_M2}€ = ${cost.woodCost_eur.toFixed(2)}€
-- Mousse: ${cost.foamSurface_m2.toFixed(2)} m² × ${getPricingConfig().PRIX_MOUSSE_M2}€ = ${cost.foamCost_eur.toFixed(2)}€
+- Mousse: ${cost.foamSurface_m2.toFixed(2)} m³ eq. × ${getPricingConfig().PRIX_MOUSSE_M3}€/m³ = ${cost.foamCost_eur.toFixed(2)}€
+
 - Quincaillerie: ${cost.hardwareCost_eur.toFixed(2)}€
 ${cost.klebartCost_eur > 0 ? `- Klébart: ${cost.klebartCost_eur.toFixed(2)}€` : ''}
 

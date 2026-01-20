@@ -38,6 +38,16 @@ const GEO_MAPPING: Record<string, string> = {
     'brussels': 'BE',
     'bruxelles': 'BE',
     'amsterdam': 'NL',
+    'bourg-en-bresse': 'FR',
+    'bourg en bresse': 'FR',
+    'bourg en bresse': 'FR',
+    'moulins': 'FR',
+    'anvers': 'BE',
+    'antwerp': 'BE',
+    'kallo': 'BE',
+    'autun': 'FR',
+    'autry-issards': 'FR',
+    'autry issards': 'FR',
 
     // Country names
     'france': 'FR',
@@ -128,4 +138,9 @@ export function getGeoEnrichedData(city: string, country: string) {
         isEU,
         subRegion
     };
+}
+
+export function isCityName(name: string): boolean {
+    const clean = name.toLowerCase().trim();
+    return !!GEO_MAPPING[clean] || Object.keys(GEO_MAPPING).includes(clean);
 }

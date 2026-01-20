@@ -9,14 +9,17 @@ import { GlassCard } from "@/components/ui/GlassCard";
 import { Project, Artwork } from "@/types";
 import { generateId } from "@/lib/generateId";
 
+import { DEFAULT_LOGISTICS_CONFIG } from "@/config/logistics";
+
 import { generateAppelOffre } from "@/services/demoDataService";
 import { Sparkles } from "lucide-react";
 import { ProjectWizardModal } from "@/components/ProjectWizardModal";
+import { generateFlowsFromArtworks } from "@/services/flowGenerator";
 import { useRouter } from "next/navigation";
 
 export default function Home() {
   const router = useRouter();
-  const { projects, addProject, deleteProject, updateProject, addArtwork, addFlow, addQuoteLines } = useProjectStore();
+  const { projects, addProject, deleteProject, updateProject, addArtwork, addFlow, addFlows, addQuoteLines } = useProjectStore();
   const [searchTerm, setSearchTerm] = useState("");
   const [showWizard, setShowWizard] = useState(false);
 
@@ -36,70 +39,45 @@ export default function Home() {
     setShowWizard(true);
   };
 
-  const onWizardComplete = (project: Project, artworks: Artwork[]) => {
-    const { getGeoEnrichedData } = require("@/services/geoService");
-
+  const onWizardComplete = async (project: Project, artworks: Artwork[]) => {
     // Avoid double submission
     if (projects.find(p => p.id === project.id)) return;
 
     addProject(project);
+    const { flows: newFlows, artworksWithFlowIds, quoteLines: newQuoteLines } = await generateFlowsFromArtworks(
+      project.id,
+      artworks,
+      project.organizing_museum,
+      project.currency,
+      DEFAULT_LOGISTICS_CONFIG
+    );
 
-    // --- STEP A & B: Normalization & Clustering ---
-    // Group artworks by CountryCode
-    const countryGroups = new Map<string, Artwork[]>();
-    artworks.forEach(art => {
-      const geo = getGeoEnrichedData(art.lender_city, art.lender_country);
-      const key = geo.countryCode;
-      if (!countryGroups.has(key)) {
-        countryGroups.set(key, []);
-      }
-      countryGroups.get(key)!.push(art);
+    console.log("🔍 onWizardComplete generated:", {
+      flows: newFlows?.length,
+      quotes: newQuoteLines?.length,
+      artworks: artworksWithFlowIds?.length
     });
 
-    const now = new Date().toISOString();
-    const flowMap = new Map<string, string>();
+    if (newFlows && newFlows.length > 0) {
+      console.log("✅ Adding flows to store:", newFlows);
+    } else {
+      console.warn("⚠️ No flows generated!");
+    }
 
-    // Intelligent destination detection (Organizer Country)
-    const organizerGeo = getGeoEnrichedData("", project.organizing_museum || "Paris");
-    const organizerCountry = organizerGeo.countryCode;
+    // 1. Add flows to store
+    if (newFlows && Array.isArray(newFlows) && newFlows.length > 0) {
+      addFlows(newFlows);
+    }
 
-    // --- STEP C: Flow Creation & Type Determination ---
-    countryGroups.forEach((groupArtworks, countryCode) => {
-      const firstArt = groupArtworks[0];
-      const geo = getGeoEnrichedData(firstArt.lender_city, firstArt.lender_country);
+    // 2. Add artworks to store
+    if (artworksWithFlowIds && Array.isArray(artworksWithFlowIds)) {
+      artworksWithFlowIds.forEach(a => addArtwork(a));
+    }
 
-      let flowType: any = 'INTL_AIR';
-      if (countryCode === organizerCountry) {
-        flowType = 'FRANCE_ROAD';
-      } else if (geo.isEU) {
-        flowType = 'EU_ROAD';
-      } else if (countryCode === 'GB') {
-        flowType = 'INTL_AIR';
-      }
-
-      const flowId = generateId();
-      addFlow({
-        id: flowId,
-        project_id: project.id,
-        origin_country: geo.countryName,
-        origin_city: groupArtworks.length > 1 ? "Plusieurs villes" : firstArt.lender_city,
-        destination_country: organizerGeo.countryName,
-        destination_city: organizerGeo.countryCode === 'US' ? 'New York' : 'Paris',
-        flow_type: flowType,
-        status: 'PENDING_QUOTE',
-        created_at: now
-      });
-
-      flowMap.set(countryCode, flowId);
-
-      // Assign flowId to all artworks in this cluster
-      groupArtworks.forEach(art => {
-        art.flow_id = flowId;
-      });
-    });
-
-    // Add artworks
-    artworks.forEach(art => addArtwork(art));
+    // 3. Add quote lines
+    if (newQuoteLines && Array.isArray(newQuoteLines) && newQuoteLines.length > 0) {
+      addQuoteLines(newQuoteLines);
+    }
 
     setShowWizard(false);
     router.push(`/projects/${project.id}`);

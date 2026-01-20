@@ -17,7 +17,7 @@ export function GlassCard({ children, className, ...props }: GlassCardProps) {
             <div className="absolute -left-20 -top-20 h-40 w-40 rounded-full bg-blue-500/10 blur-3xl" />
             <div className="absolute -bottom-20 -right-20 h-40 w-40 rounded-full bg-indigo-500/10 blur-3xl" />
 
-            <div className="relative z-10">{children}</div>
+            <div className="relative z-10 h-full flex flex-col">{children}</div>
         </div>
     );
 }

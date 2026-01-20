@@ -14,8 +14,8 @@ export default function InventoryPage() {
     const [searchTerm, setSearchTerm] = useState("");
 
     const filteredArtworks = artworks.filter(a =>
-        a.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        a.artist.toLowerCase().includes(searchTerm.toLowerCase())
+        (a.title || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (a.artist || "").toLowerCase().includes(searchTerm.toLowerCase())
     );
 
     const getProjectName = (projectId: string) => {

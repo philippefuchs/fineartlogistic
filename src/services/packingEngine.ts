@@ -43,17 +43,6 @@ export interface PackingResult {
 export function calculatePacking(artwork: ArtworkInput): PackingResult {
     const config = getPricingConfig();
 
-    // RÈGLE 1: Calcul des marges de sécurité (Tampon Mousse)
-    // V2: Tableau (+10cm total = 5cm par côté), Sculpture (+20cm total = 10cm par côté)
-    const foamThickness = artwork.typology === 'SCULPTURE' || artwork.typology === 'INSTALLATION'
-        ? 100 // 10cm
-        : 50;  // 5cm
-
-    // Dimensions internes de la caisse (œuvre + mousse)
-    let internal_h = artwork.h_cm * 10 + (2 * foamThickness);
-    let internal_w = artwork.w_cm * 10 + (2 * foamThickness);
-    let internal_d = artwork.d_cm * 10 + (2 * foamThickness);
-
     // RÈGLE 2: Sélection du Type de Fabrication (V2 decision tree)
     let crateType: CrateType;
     let needsKlebart = false;
@@ -69,15 +58,30 @@ export function calculatePacking(artwork: ArtworkInput): PackingResult {
     } else if (artwork.typology === 'TABLEAU' && artwork.hasFragileFrame) {
         needsKlebart = true;
         klebartThickness = config.EPAISSEUR_KLEBART;
-        internal_h += klebartThickness;
-        internal_w += klebartThickness;
-        internal_d += klebartThickness;
         crateType = 'T2_MUSEE';
     } else if (artwork.fragility >= 4) {
         crateType = 'T2_MUSEE';
     } else {
         crateType = 'T1_GALERIE';
     }
+
+    // RÈGLE 1: Calcul des marges de sécurité (Tampon Mousse)
+    // Alignement : T2/Sculpture = Fragile (100mm), T1/Standard = Standard (50mm)
+    const foamThickness = (crateType === 'T2_MUSEE' || artwork.typology === 'SCULPTURE' || artwork.typology === 'INSTALLATION')
+        ? config.EPAISSEUR_MOUSSE_FRAGILE
+        : config.EPAISSEUR_MOUSSE_STANDARD;
+
+    // Dimensions internes de la caisse (œuvre + mousse)
+    let internal_h = artwork.h_cm * 10 + (2 * foamThickness);
+    let internal_w = artwork.w_cm * 10 + (2 * foamThickness);
+    let internal_d = artwork.d_cm * 10 + (2 * foamThickness);
+
+    if (needsKlebart) {
+        internal_h += klebartThickness;
+        internal_w += klebartThickness;
+        internal_d += klebartThickness;
+    }
+
 
     // RÈGLE 3: Calcul des Dimensions Extérieures
     const wallThickness = crateType === 'T2_MUSEE'

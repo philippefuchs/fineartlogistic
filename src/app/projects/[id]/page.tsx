@@ -4,7 +4,7 @@ import { use, useState, useEffect } from "react";
 import { AppLayout } from "@/components/AppLayout";
 import { useProjectStore } from "@/hooks/useProjectStore";
 import { GlassCard } from "@/components/ui/GlassCard";
-import { Box, Plus, Ruler, Weight, Tag, ChevronLeft, Truck, Receipt, Trash2, Mail, BarChart3, CheckCircle2, Download, TrendingUp, FileText } from "lucide-react";
+import { Box, Plus, Ruler, Weight, Tag, ChevronLeft, Truck, Receipt, Trash2, Mail, BarChart3, CheckCircle2, Download, TrendingUp, FileText, CloudUpload } from "lucide-react";
 import Link from "next/link";
 import { ArtworkForm } from "@/components/ArtworkForm";
 import { LogisticsPlanner } from "@/components/LogisticsPlanner";
@@ -18,12 +18,11 @@ import { ImageUpload } from "@/components/ui/ImageUpload";
 import { cn } from "@/lib/utils";
 import { generateId } from "@/lib/generateId";
 
-import { ExcelImportModal } from "@/components/ExcelImportModal";
+import ExcelImportModal from "@/components/ExcelImportModal";
 import { AgentRequestModal } from "@/components/AgentRequestModal";
 import { FinancialConsolidation } from "@/components/FinancialConsolidation";
-import { CompleteQuoteModal } from "@/components/CompleteQuoteModal";
-import { UploadCloud, Maximize2, FolderOpen } from "lucide-react";
 import { ProjectDocumentsTab } from "@/components/ProjectDocumentsTab";
+import { generateFlowsFromArtworks } from "@/services/flowGenerator";
 
 import { InventoryGrid } from "@/components/InventoryGrid";
 import { ArtworkDetailModal } from "@/components/ArtworkDetailModal";
@@ -41,6 +40,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
         updateArtwork,
         deleteArtwork,
         addFlow,
+        addFlows,
         deleteFlow,
         addQuoteLines,
         updateQuoteLine,
@@ -126,119 +126,26 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
                     file={importFile}
                     projectId={project.id}
                     onClose={() => setImportFile(null)}
-                    onImport={(newArtworks) => {
-                        const { getGeoEnrichedData } = require("@/services/geoService");
+                    onImport={async (newArtworks) => {
+                        const { flows: newFlows, artworksWithFlowIds, quoteLines: newQuoteLines } = await generateFlowsFromArtworks(
+                            project.id,
+                            newArtworks,
+                            project.organizing_museum,
+                            project.currency,
+                            useProjectStore.getState().logisticsConfig
+                        );
 
-                        // 1. Detect unique countries and create flows
-                        const countryGroups = new Map<string, Artwork[]>();
-                        newArtworks.forEach(a => {
-                            const geo = getGeoEnrichedData(a.lender_city, a.lender_country);
-                            const key = geo.countryCode;
-                            if (!countryGroups.has(key)) {
-                                countryGroups.set(key, []);
-                            }
-                            countryGroups.get(key)!.push(a);
-                        });
-
-                        const now = new Date().toISOString();
-                        const flowMap = new Map<string, string>();
-                        const transportLines: any[] = [];
-
-                        // Intelligent destination detection (Organizer Country)
-                        const organizerGeo = getGeoEnrichedData("", project.organizing_museum || "Paris");
-                        const organizerCountry = organizerGeo.countryCode;
-
-                        // Create flows for new countries (avoid duplicates if flow already exists)
-                        countryGroups.forEach((groupArtworks, countryCode) => {
-                            const firstArt = groupArtworks[0];
-                            const geo = getGeoEnrichedData(firstArt.lender_city, firstArt.lender_country);
-
-                            const existingFlow = projectFlows.find(f => {
-                                const fGeo = getGeoEnrichedData(f.origin_city || "", f.origin_country);
-                                return fGeo.countryCode === countryCode;
-                            });
-
-                            let flowId = "";
-                            if (existingFlow) {
-                                flowId = existingFlow.id;
-                                flowMap.set(countryCode, flowId);
-                            } else {
-                                let flowType: any = 'INTL_AIR';
-                                if (countryCode === organizerCountry) {
-                                    flowType = 'FRANCE_ROAD';
-                                } else if (geo.isEU) {
-                                    flowType = 'EU_ROAD';
-                                }
-
-                                flowId = generateId();
-                                addFlow({
-                                    id: flowId,
-                                    project_id: project.id,
-                                    origin_city: groupArtworks.length > 1 ? "Plusieurs villes" : firstArt.lender_city,
-                                    origin_country: geo.countryName,
-                                    destination_city: organizerGeo.countryCode === 'US' ? 'New York' : 'Paris',
-                                    destination_country: organizerGeo.countryName,
-                                    flow_type: flowType,
-                                    status: 'PENDING_QUOTE',
-                                    created_at: now
-                                } as any);
-                                flowMap.set(countryCode, flowId);
-
-                                // Add transport estimation
-                                let estPrice = 1200;
-                                if (flowType === 'INTL_AIR') estPrice = 8500;
-                                else if (flowType === 'EU_ROAD') estPrice = 3500;
-                                else if (flowType === 'FRANCE_ROAD') estPrice = 850;
-
-                                transportLines.push({
-                                    id: generateId(),
-                                    project_id: project.id,
-                                    flow_id: flowId,
-                                    category: 'TRANSPORT' as const,
-                                    description: `Estimation transport cluster ${geo.countryName} (${flowType})`,
-                                    quantity: 1,
-                                    unit_price: estPrice,
-                                    total_price: estPrice,
-                                    currency: project.currency || 'EUR',
-                                    source: 'ESTIMATION' as const,
-                                    created_at: now
-                                });
-                            }
-
-                            // Assign flowId to all artworks in this cluster
-                            groupArtworks.forEach(art => {
-                                art.flow_id = flowId;
-                            });
-                        });
+                        // 1. Add flows to store
+                        if (newFlows && newFlows.length > 0) {
+                            addFlows(newFlows);
+                        }
 
                         // 2. Add artworks to store
-                        newArtworks.forEach(a => addArtwork(a));
+                        artworksWithFlowIds.forEach(a => addArtwork(a));
 
-                        // 3. Add packing quote lines automatically
-                        const packingLines = newArtworks
-                            .filter(art => art.crate_estimated_cost)
-                            .map(art => {
-                                const geo = getGeoEnrichedData(art.lender_city, art.lender_country);
-                                const flowId = flowMap.get(geo.countryCode) || "";
-
-                                return {
-                                    id: generateId(),
-                                    project_id: project.id,
-                                    flow_id: flowId,
-                                    category: 'PACKING' as const,
-                                    description: `Emballage caisse pour "${art.title}"`,
-                                    quantity: 1,
-                                    unit_price: art.crate_estimated_cost || 0,
-                                    total_price: art.crate_estimated_cost || 0,
-                                    currency: project.currency || 'EUR',
-                                    source: 'CALCULATION' as const,
-                                    created_at: now
-                                };
-                            });
-
-                        const allLines = [...transportLines, ...packingLines];
-                        if (allLines.length > 0) {
-                            addQuoteLines(allLines);
+                        // 3. Add quote lines
+                        if (newQuoteLines.length > 0) {
+                            addQuoteLines(newQuoteLines);
                         }
                     }}
                 />
@@ -772,22 +679,53 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
                                                         {/* Artworks in this flow */}
                                                         {(() => {
                                                             const flowArtworks = projectArtworks.filter(a => a.flow_id === flow.id);
-                                                            if (flowArtworks.length === 0) return null;
+                                                            const flowQuoteLines = projectQuoteLines.filter(l => l.flow_id === flow.id);
+
+                                                            if (flowArtworks.length === 0 && flowQuoteLines.length === 0) return null;
                                                             return (
-                                                                <div className="mt-3 pt-3 border-t border-white/5">
-                                                                    <div className="flex items-center gap-1.5 mb-2">
-                                                                        <div className="w-1 h-1 rounded-full bg-blue-500" />
-                                                                        <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">
-                                                                            {flowArtworks.length} Œuvre{flowArtworks.length > 1 ? 's' : ''}
-                                                                        </p>
-                                                                    </div>
-                                                                    <div className="flex flex-wrap gap-1">
-                                                                        {flowArtworks.map(art => (
-                                                                            <span key={art.id} className="text-[9px] bg-white/[0.03] text-zinc-400 px-1.5 py-0.5 rounded border border-white/5">
-                                                                                {art.title}
-                                                                            </span>
-                                                                        ))}
-                                                                    </div>
+                                                                <div className="mt-3 pt-3 border-t border-white/5 space-y-3">
+                                                                    {flowArtworks.length > 0 && (
+                                                                        <div>
+                                                                            <div className="flex items-center gap-1.5 mb-2">
+                                                                                <div className="w-1 h-1 rounded-full bg-blue-500" />
+                                                                                <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">
+                                                                                    {flowArtworks.length} Œuvre{flowArtworks.length > 1 ? 's' : ''}
+                                                                                </p>
+                                                                            </div>
+                                                                            <div className="flex flex-wrap gap-1">
+                                                                                {flowArtworks.map(art => (
+                                                                                    <span key={art.id} className="text-[9px] bg-white/[0.03] text-zinc-400 px-1.5 py-0.5 rounded border border-white/5">
+                                                                                        {art.title}
+                                                                                    </span>
+                                                                                ))}
+                                                                            </div>
+                                                                        </div>
+                                                                    )}
+
+                                                                    {flowQuoteLines.length > 0 && (
+                                                                        <div className="pt-2 border-t border-white/5">
+                                                                            <div className="flex items-center gap-1.5 mb-2">
+                                                                                <div className="w-1 h-1 rounded-full bg-emerald-500" />
+                                                                                <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">
+                                                                                    Détails des Coûts ({flowQuoteLines.length})
+                                                                                </p>
+                                                                            </div>
+                                                                            <div className="space-y-1">
+                                                                                {flowQuoteLines.map(line => (
+                                                                                    <div key={line.id} className="flex justify-between items-center text-[10px]">
+                                                                                        <span className="text-zinc-500 truncate max-w-[180px]">{line.description}</span>
+                                                                                        <span className="text-white font-mono">{line.total_price.toLocaleString()} {line.currency}</span>
+                                                                                    </div>
+                                                                                ))}
+                                                                                <div className="flex justify-between items-center pt-1 mt-1 border-t border-white/5 text-[10px] font-black">
+                                                                                    <span className="text-zinc-400 uppercase">Coût Total</span>
+                                                                                    <span className="text-emerald-400 font-mono">
+                                                                                        {flowQuoteLines.reduce((sum, l) => sum + l.total_price, 0).toLocaleString()} {project.currency || 'EUR'}
+                                                                                    </span>
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+                                                                    )}
                                                                 </div>
                                                             );
                                                         })()}
@@ -929,14 +867,17 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
                                         accept=".xlsx,.xls"
                                         onChange={(e) => {
                                             const file = e.target.files?.[0];
-                                            if (file) setImportFile(file);
+                                            if (file) {
+                                                setImportFile(file);
+                                                e.target.value = ''; // Allow re-selecting same file
+                                            }
                                         }}
                                     />
                                     <button
                                         onClick={() => document.getElementById('excel-upload')?.click()}
                                         className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-sm font-bold text-zinc-400 hover:bg-white/10 transition-all"
                                     >
-                                        <UploadCloud size={16} />
+                                        <CloudUpload size={16} />
                                         Importer (DEBUG)
                                     </button>
                                     <button
@@ -961,7 +902,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
                                 {isDragging && (
                                     <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-blue-900/40 backdrop-blur-sm rounded-3xl pointer-events-none">
                                         <div className="bg-blue-600 p-4 rounded-full mb-4 shadow-2xl animate-bounce">
-                                            <UploadCloud size={32} className="text-white" />
+                                            <CloudUpload size={32} className="text-white" />
                                         </div>
                                         <p className="text-xl font-bold text-white">Relâchez pour importer votre Excel</p>
                                         <p className="text-blue-200">Format .xlsx ou .xls supporté</p>

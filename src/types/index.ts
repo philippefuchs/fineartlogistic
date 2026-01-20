@@ -70,7 +70,16 @@ export interface Artwork {
   lender_museum: string;
   lender_city: string;
   lender_country: string;
+  destination_city?: string; // New: Supports per-artwork destination
+  destination_city_2?: string; // New: Supports tour step
+  origin_city?: string; // New: Explicit origin if different from lender
   insurance_value: number;
+
+  // CCTP Specific Requirements
+  courier_requirements?: string; // From "convoiement"
+  imposed_agent?: string; // From "COMMENTAIRE" (e.g. Mobull/Hizkia)
+  customs_requirements?: boolean; // From "COMMENTAIRE"
+  packing_requirements?: string; // From "Technique" or "Emballage"
 
   // Résultats du moteur de calcul
   crate_specs?: {
@@ -88,7 +97,7 @@ export interface Artwork {
   created_at: string;
 }
 
-export type FlowType = 'FRANCE_ROAD' | 'EU_ROAD' | 'INTL_AIR' | 'DEDICATED_TRUCK' | 'ART_SHUTTLE';
+export type FlowType = 'FRANCE_ROAD' | 'FRANCE_INTERNAL' | 'EU_ROAD' | 'INTL_AIR' | 'AIR_FREIGHT' | 'DEDICATED_TRUCK' | 'ART_SHUTTLE';
 export type FlowStatus = 'PENDING_QUOTE' | 'AWAITING_QUOTE' | 'QUOTE_RECEIVED' | 'VALIDATED';
 
 export interface LogisticsFlow {
@@ -240,7 +249,7 @@ export interface LogisticsAlert {
 }
 
 export interface LogisticsPlanResult {
-  recommended_method: 'ART_SHUTTLE' | 'DEDICATED_TRUCK' | 'AIR_FREIGHT';
+  recommended_method: FlowType;
   rationale: string;
   estimated_lead_time: string;
   required_crate_level: 'MUSÉE' | 'VOYAGE';

@@ -31,7 +31,7 @@ export function LogisticsPlanner({ project, artworks, onClose, onSave, flow, pro
     const [destination, setDestination] = useState(flow?.destination_city || "New York, USA");
 
     // Internal flow selection for global view
-    const [selectedFlowId, setSelectedFlowId] = useState<string>("ALL");
+    const [selectedFlowId, setSelectedFlowId] = useState<string>(flow?.id || (projectFlows.length > 0 ? projectFlows[0].id : "ALL"));
 
     // Filter artworks based on context
     const filteredArtworks = useMemo(() => {
@@ -68,8 +68,10 @@ export function LogisticsPlanner({ project, artworks, onClose, onSave, flow, pro
     useEffect(() => {
         if (flow) {
             let initialMethod = flow.flow_type as any;
-            if (initialMethod === 'FRANCE_INTERNAL' || initialMethod === 'EU_ROAD') {
+            if (initialMethod === 'FRANCE_INTERNAL' || initialMethod === 'FRANCE_ROAD' || initialMethod === 'EU_ROAD') {
                 initialMethod = 'DEDICATED_TRUCK'; // Default icon/logic for road
+            } else if (initialMethod === 'AIR_FREIGHT' || initialMethod === 'INTL_AIR') {
+                initialMethod = 'AIR_FREIGHT';
             }
 
             setPlanResult({
@@ -218,8 +220,10 @@ export function LogisticsPlanner({ project, artworks, onClose, onSave, flow, pro
         ART_SHUTTLE: <Truck size={24} className="text-blue-400" />,
         DEDICATED_TRUCK: <Truck size={24} className="text-indigo-400" />,
         AIR_FREIGHT: <Plane size={24} className="text-purple-400" />,
+        INTL_AIR: <Plane size={24} className="text-purple-400" />,
         EU_ROAD: <Truck size={24} className="text-zinc-400" />,
         FRANCE_INTERNAL: <Truck size={24} className="text-emerald-400" />,
+        FRANCE_ROAD: <Truck size={24} className="text-emerald-400" />,
     };
 
     return (
@@ -255,8 +259,10 @@ export function LogisticsPlanner({ project, artworks, onClose, onSave, flow, pro
                                             <option key={f.id} value={f.id} className="bg-zinc-900 text-white">
                                                 {(() => {
                                                     const typeMap: Record<string, string> = {
+                                                        'FRANCE_INTERNAL': "🇫🇷 France",
                                                         'FRANCE_ROAD': "🇫🇷 France",
                                                         'EU_ROAD': "🇪🇺 Europe",
+                                                        'AIR_FREIGHT': `✈️ ${f.origin_country}`,
                                                         'INTL_AIR': `✈️ ${f.origin_country}`,
                                                         'ART_SHUTTLE': 'NAVETTE',
                                                         'DEDICATED_TRUCK': 'DÉDIÉ'

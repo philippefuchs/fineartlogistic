@@ -1,5 +1,5 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { QUOTE_EXTRACTOR_PROMPT, CRATE_CALCULATOR_PROMPT, LOGISTICS_FLOW_PLANNER_PROMPT, CCTP_EXTRACTOR_PROMPT } from "./aiPrompts";
+import { QUOTE_EXTRACTOR_PROMPT, CRATE_CALCULATOR_PROMPT, LOGISTICS_FLOW_PLANNER_PROMPT, CCTP_EXTRACTOR_PROMPT, ADDRESS_EXTRACTOR_PROMPT, BATCH_ADDRESS_EXTRACTOR_PROMPT } from "./aiPrompts";
 import { QuoteLine, Artwork, LogisticsPlanResult } from "../types";
 
 const genAI = new GoogleGenerativeAI(process.env.NEXT_PUBLIC_GEMINI_API_KEY || "");
@@ -352,5 +352,43 @@ export async function analyzeCCTP(pdfBase64: string): Promise<CCTPAnalysisResult
     } catch (error) {
         console.error("CCTP analysis error:", error);
         throw error;
+    }
+}
+
+export async function parseAddressWithAI(rawText: string): Promise<{ city: string; country: string }> {
+    const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
+    if (!apiKey || apiKey === "") return { city: "", country: "" };
+
+    try {
+        const result = await model.generateContent([
+            ADDRESS_EXTRACTOR_PROMPT,
+            "Extract the following address:",
+            rawText
+        ]);
+        const text = result.response.text();
+        return parseAIJson(text);
+    } catch (e) {
+        console.error("AI Address Parse Error", e);
+        return { city: "", country: "" };
+    }
+}
+
+export async function batchParseAddressesWithAI(rawTexts: string[]): Promise<{ city: string; country: string }[]> {
+    const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
+    if (!apiKey || apiKey === "" || rawTexts.length === 0) {
+        return rawTexts.map(() => ({ city: "", country: "" }));
+    }
+
+    try {
+        const result = await model.generateContent([
+            BATCH_ADDRESS_EXTRACTOR_PROMPT,
+            "Extract the following list of addresses (one per line):",
+            rawTexts.join('\n---\n')
+        ]);
+        const text = result.response.text();
+        return parseAIJson(text);
+    } catch (e) {
+        console.error("AI Batch Address Parse Error", e);
+        return rawTexts.map(() => ({ city: "", country: "" }));
     }
 }

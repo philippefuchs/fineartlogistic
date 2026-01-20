@@ -17,6 +17,7 @@ interface ProjectState {
     updateArtwork: (id: string, updates: Partial<Artwork>) => void;
     deleteArtwork: (id: string) => void;
     addFlow: (flow: LogisticsFlow) => void;
+    addFlows: (flows: LogisticsFlow[]) => void;
     updateFlow: (id: string, updates: Partial<LogisticsFlow>) => void;
     deleteFlow: (id: string) => void;
     addQuoteLines: (lines: QuoteLine[]) => void;
@@ -103,9 +104,18 @@ export const useProjectStore = create<ProjectState>()(
             deleteArtwork: (id) => set((state) => ({
                 artworks: state.artworks.filter((a) => a.id !== id),
             })),
-            addFlow: (flow) => set((state) => ({
-                flows: [...state.flows, flow]
-            })),
+            addFlow: (flow) => {
+                console.log("💾 addFlow called for:", flow.id);
+                return set((state) => ({
+                    flows: [...state.flows, flow]
+                }));
+            },
+            addFlows: (newFlows) => {
+                console.log("💾 addFlows (BATCH) called for", newFlows.length, "flows");
+                return set((state) => ({
+                    flows: [...state.flows, ...newFlows]
+                }));
+            },
             updateFlow: (id, updates) => set((state) => ({
                 flows: state.flows.map((f) => (f.id === id ? { ...f, ...updates } : f)),
             })),

@@ -105,6 +105,7 @@ export const generateAppelOffre = () => {
                 crate_estimated_cost: Math.round(cost.sellingPrice_eur),
                 crate_factory_cost: Math.round(cost.factoryCost_eur),
                 crate_calculation_details: formatCostBreakdown(cost),
+                flow_id: flowId,
                 created_at: now
             };
             artworks.push(artwork);
