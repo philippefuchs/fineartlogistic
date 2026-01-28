@@ -23,6 +23,8 @@ import { AgentRequestModal } from "@/components/AgentRequestModal";
 import { FinancialConsolidation } from "@/components/FinancialConsolidation";
 import { ProjectDocumentsTab } from "@/components/ProjectDocumentsTab";
 import { generateFlowsFromArtworks } from "@/services/flowGenerator";
+import { exportFinancialOffertoXLSX, exportCompleteQuoteToXLSX } from "@/services/excelExportService";
+import { calculateFlowTotalCost, calculateTransport } from "@/services/logisticsEngine";
 
 import { InventoryGrid } from "@/components/InventoryGrid";
 import { ArtworkDetailModal } from "@/components/ArtworkDetailModal";
@@ -556,6 +558,47 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
                                 <button onClick={() => exportProformaInvoice(project, projectArtworks)} className="w-full text-left px-4 py-3 text-sm text-zinc-300 hover:bg-white/5 hover:text-white transition-colors border-t border-white/5">
                                     Facture Proforma
                                 </button>
+                                {projectQuoteLines.length > 0 && (
+                                    <>
+                                        <button
+                                            onClick={() => {
+                                                // Prepare data for export
+                                                const flows = projectFlows;
+                                                const quoteLines = projectQuoteLines;
+                                                const flowData = flows.map(flow => {
+                                                    const lines = quoteLines.filter(l => l.flow_id === flow.id);
+                                                    const totalCost = lines.reduce((acc, l) => acc + l.total_price, 0);
+                                                    const margin = 20; // Default 20%
+                                                    const sellingPrice = totalCost * (1 + margin / 100);
+                                                    const profit = sellingPrice - totalCost;
+                                                    return { flow, lines, totalCost, margin, sellingPrice, profit };
+                                                });
+                                                const packingCost = projectArtworks.reduce((acc, a) => acc + (a.crate_estimated_cost || 0), 0);
+                                                const totalCost = flowData.reduce((acc, f) => acc + f.totalCost, 0) + packingCost;
+                                                const totalSelling = flowData.reduce((acc, f) => acc + f.sellingPrice, 0) + (packingCost * 1.2);
+                                                const totalProfit = totalSelling - totalCost;
+                                                const avgMargin = totalCost > 0 ? ((totalProfit / totalCost) * 100) : 0;
+                                                const totals = { totalCost, totalSelling, totalProfit, avgMargin, packingCost };
+
+                                                exportFinancialOffertoXLSX(project, flowData, totals, projectArtworks);
+                                            }}
+                                            className="w-full text-left px-4 py-3 text-sm text-zinc-300 hover:bg-white/5 hover:text-white transition-colors border-t border-white/5"
+                                        >
+                                            Offre Financière (XLSX)
+                                        </button>
+                                        <button
+                                            onClick={() => {
+                                                const distance_km = 500; // Default or maybe we should ask?
+                                                const quote = calculateFlowTotalCost(projectArtworks, distance_km);
+                                                const transport = calculateTransport(projectArtworks, distance_km);
+                                                exportCompleteQuoteToXLSX(project, projectArtworks, distance_km, quote, transport);
+                                            }}
+                                            className="w-full text-left px-4 py-3 text-sm text-zinc-300 hover:bg-white/5 hover:text-white transition-colors border-t border-white/5"
+                                        >
+                                            Devis Automatique (XLSX)
+                                        </button>
+                                    </>
+                                )}
                                 {project.constraints && (
                                     <button onClick={() => exportCCTPSummary(project)} className="w-full text-left px-4 py-3 text-sm text-zinc-300 hover:bg-white/5 hover:text-white transition-colors border-t border-white/5">
                                         Synthèse CCTP

@@ -7,6 +7,8 @@ import { Artwork, Project } from "@/types";
 import { calculateFlowTotalCost, calculatePackingService, calculateTransport } from "@/services/logisticsEngine";
 import { cn } from "@/lib/utils";
 import { exportCompleteQuoteToPDF } from "@/services/reportService";
+import { exportCompleteQuoteToXLSX } from "@/services/excelExportService";
+import { FileSpreadsheet } from "lucide-react";
 
 interface CompleteQuoteModalProps {
     project: Project;
@@ -191,13 +193,22 @@ export function CompleteQuoteModal({ project, artworks, onClose }: CompleteQuote
                         </button>
                         <button
                             onClick={() => {
+                                exportCompleteQuoteToXLSX(project, artworks, distance_km, quote, transport);
+                            }}
+                            className="px-6 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold shadow-lg shadow-emerald-500/20 transition-all flex items-center gap-2"
+                        >
+                            <FileSpreadsheet size={16} />
+                            Exporter en Excel
+                        </button>
+                        <button
+                            onClick={() => {
                                 alert('Génération du PDF en cours...');
                                 exportCompleteQuoteToPDF(project, artworks, distance_km);
                             }}
                             className="px-6 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold shadow-lg shadow-blue-500/20 transition-all flex items-center gap-2"
                         >
                             <Download size={16} />
-                            Exporter le Devis
+                            Exporter le Devis (PDF)
                         </button>
                     </div>
                 </div>

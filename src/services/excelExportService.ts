@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx';
-import { Project } from '../types';
+import { Project, Artwork } from '../types';
 
 interface FlowExportData {
     flow: {
@@ -161,6 +161,106 @@ export const exportFinancialOffertoXLSX = (
         alert("Erreur lors de la génération du fichier Excel.");
     }
 };
+
+
+export const exportCompleteQuoteToXLSX = (
+    project: Project,
+    artworks: Artwork[],
+    distance_km: number,
+    quote: any,
+    transport: any
+) => {
+    try {
+        const wb = XLSX.utils.book_new();
+
+        // 1. Summary Sheet
+        const summaryRows = [
+            ['GROSPIRON FINE ART - DEVIS ESTIMATIF COMPLET'],
+            [],
+            ['INFORMATIONS PROJET'],
+            ['Nom du Projet', project.name],
+            ['Référence', project.reference_code],
+            ['Musée Organisateur', project.organizing_museum],
+            ['Date de Génération', new Date().toLocaleDateString('fr-FR')],
+            ['Distance Estimée', `${distance_km} km`],
+            [],
+            ['RÉSUMÉ DES COÛTS'],
+            ['Fabrication Caisses (T1/T2)', quote.crateCosts_eur, '€'],
+            ['Emballage & Tamponnage', quote.packingCosts_eur, '€'],
+            ['Transport Logistique', quote.transportCost_eur, '€'],
+            ['TOTAL ESTIMÉ (HT)', quote.totalCost_eur, '€'],
+            [],
+            ['DÉTAILS TRANSPORT'],
+            ['Volume Total', transport.totalVolume_m3, 'm³'],
+            ['Type de Véhicule', transport.vehicleType === 'CAMION_20M3' ? 'Camion 20m³' : 'Poids Lourd'],
+            ['Forfait de base', transport.baseCost_eur, '€'],
+            ['Supplément Km', transport.distanceCost_eur, '€']
+        ];
+
+        const wsSummary = XLSX.utils.aoa_to_sheet(summaryRows);
+        wsSummary['!cols'] = [{ wch: 30 }, { wch: 30 }, { wch: 10 }];
+        XLSX.utils.book_append_sheet(wb, wsSummary, 'Résumé Devis');
+
+        // 2. Per-Artwork Detail Sheet
+        const artworkHeader = ['TITRE', 'ARTISTE', 'TYPE', 'COÛT CAISSE', 'COÛT EMBALLAGE', 'TOTAL ŒUVRE'];
+        const artworkRows = artworks.map(a => {
+            const packingCost = calculatePackingService(a).packingCost_eur;
+            const crateCost = a.crate_estimated_cost || 0;
+            return [
+                a.title,
+                a.artist,
+                a.typology,
+                crateCost,
+                packingCost,
+                crateCost + packingCost
+            ];
+        });
+
+        const wsArtworks = XLSX.utils.aoa_to_sheet([artworkHeader, ...artworkRows]);
+        wsArtworks['!cols'] = [
+            { wch: 30 }, // Titre
+            { wch: 20 }, // Artiste
+            { wch: 15 }, // Type
+            { wch: 15 }, // Caisse
+            { wch: 15 }, // Emballage
+            { wch: 15 }  // Total
+        ];
+        XLSX.utils.book_append_sheet(wb, wsArtworks, 'Détail par Œuvre');
+
+        // 3. Technical Breakdown Sheet
+        const breakdownLines = quote.breakdown.split('\n').map((line: string) => [line]);
+        const wsBreakdown = XLSX.utils.aoa_to_sheet(breakdownLines);
+        wsBreakdown['!cols'] = [{ wch: 80 }];
+        XLSX.utils.book_append_sheet(wb, wsBreakdown, 'Breakdown Technique');
+
+        // Trigger Download
+        XLSX.writeFile(wb, `${project.reference_code}_Devis_Complet_${new Date().toISOString().split('T')[0]}.xlsx`);
+
+    } catch (error) {
+        console.error("Excel Export Error:", error);
+        alert("Erreur lors de la génération du fichier Excel.");
+    }
+};
+
+function calculatePackingService(artwork: Artwork) {
+    const TAUX_HORAIRE_EMBALLEUR = 65; // Matches pricing.ts approx
+    const surface_m2 = (artwork.dimensions_h_cm * artwork.dimensions_w_cm) / 10000;
+    let packingTime = 0.5;
+    let workers = 2;
+
+    if (artwork.typology === 'TABLEAU') {
+        if (surface_m2 < 1) packingTime = 0.25;
+        else if (surface_m2 < 4) packingTime = 0.5;
+        else packingTime = 1;
+    } else if (artwork.typology === 'SCULPTURE') {
+        packingTime = 1.5;
+        if (artwork.weight_kg > 50) workers = 3;
+    }
+
+    if (artwork.fragility && artwork.fragility >= 4) packingTime *= 1.5;
+
+    return { packingCost_eur: packingTime * workers * TAUX_HORAIRE_EMBALLEUR };
+}
 
 function TotalsValue(val: number) {
     return Math.round(val * 100) / 100;
