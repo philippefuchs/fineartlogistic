@@ -1,8 +1,9 @@
 import { Artwork } from '@/types';
 import { generateId } from '@/lib/generateId';
-import { calculatePacking, Typology, getCrateTypeLabel } from "@/services/packingEngine";
-import { calculateCost } from "@/services/costCalculator";
-import { isCityName, getGeoEnrichedData } from "@/services/geoService";
+import { calculatePacking, getCrateTypeLabel, CrateType, Typology } from "./packingEngine";
+import { calculateCost, formatCostBreakdown } from "./costCalculator";
+import { isCityName, getGeoEnrichedData } from "./geoService";
+import { getPricingConfig } from "@/config/pricing";
 
 /**
  * Service to centralize Excel import logic across the application.
@@ -409,41 +410,27 @@ export const processArtworkRows = (
             }
         });
 
-        // Automation of Packing & Cost
+        // Automation of Packing & Cost (V3 SECO)
         const packing = calculatePacking({
             h_cm: artwork.dimensions_h_cm || 0,
             w_cm: artwork.dimensions_w_cm || 0,
             d_cm: artwork.dimensions_d_cm || 0,
             weight_kg: artwork.weight_kg || 0,
             typology: (artwork.typology as Typology) || 'TABLEAU',
-            fragility: 2,
-            hasFragileFrame: false
+            fragility: (artwork as any).fragility || 2,
+            hasFragileFrame: false,
+            insurance_value: artwork.insurance_value
         });
 
-        // Apply CCTP overrides from packing_requirements if present
+        // Add packing_requirements to the context for calculation if available (handled inside calculatePacking now)
         if (artwork.packing_requirements) {
-            const reqs = artwork.packing_requirements.toLowerCase();
-            if (reqs.includes("isotherme") || reqs.includes("climatique") || reqs.includes("musée") || reqs.includes("museum") || reqs.includes("t2")) {
-                packing.crateType = 'T2_MUSEE';
-            } else if (reqs.includes("voyage") || reqs.includes("galerie") || reqs.includes("t1")) {
-                packing.crateType = 'T1_GALERIE';
-            } else if (reqs.includes("tampon") || reqs.includes("bulle") || reqs.includes("soft") || reqs.includes("carton")) {
-                packing.crateType = 'SOFT_PACK';
-            }
-
-            // Adjust external dims based on crate type
-            const paddingMap = { 'T2_MUSEE': 100, 'T1_GALERIE': 60, 'SOFT_PACK': 20 };
-            const padding = paddingMap[packing.crateType as keyof typeof paddingMap] || 60;
-            packing.external_h_mm = packing.internal_h_mm + padding;
-            packing.external_w_mm = packing.internal_w_mm + padding;
-            packing.external_d_mm = packing.internal_d_mm + padding;
-            packing.externalVolume_m3 = (packing.external_h_mm * packing.external_w_mm * packing.external_d_mm) / 1_000_000_000;
+            (artwork as any).packing_requirements = artwork.packing_requirements;
         }
 
         const costBreakdown = calculateCost(packing);
 
         artwork.crate_specs = {
-            crate_type: packing.crateType === 'T2_MUSEE' ? 'MUSÉE' : (packing.crateType === 'SOFT_PACK' ? 'TAMPO' : 'VOYAGE'),
+            crate_type: getCrateTypeLabel(packing.crateType),
             internal_dimensions: {
                 h: packing.internal_h_mm,
                 w: packing.internal_w_mm,
@@ -459,7 +446,7 @@ export const processArtworkRows = (
         artwork.recommended_crate = getCrateTypeLabel(packing.crateType);
         artwork.crate_estimated_cost = Math.ceil(costBreakdown.sellingPrice_eur);
         artwork.crate_factory_cost = costBreakdown.factoryCost_eur;
-        artwork.crate_calculation_details = `${getCrateTypeLabel(packing.crateType)} | Volume ext: ${packing.externalVolume_m3.toFixed(3)}m3 | MO: ${costBreakdown.fabricationTime_hours}h`;
+        artwork.crate_calculation_details = formatCostBreakdown(costBreakdown);
 
         if (artwork.title !== "Sans titre" || (artwork.insurance_value && artwork.insurance_value > 0)) {
             // Always ensure debug info is attached if possible
@@ -523,7 +510,7 @@ export async function enrichArtworksWithAI(artworks: Artwork[], onProgress?: (p:
                 }
             });
         } catch (e) {
-            console.error(`AI Batch Enrichment failed for chunk starting at ${i}`, e);
+            console.error(`AI Batch Enrichment failed for chunk starting at ${i} `, e);
             chunk.forEach(raw => {
                 addressGroups[raw].forEach(a => {
                     (a as any)._ai_processed = "Error";
