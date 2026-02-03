@@ -1,5 +1,8 @@
 import { getPricingConfig } from "@/config/pricing";
-import { Artwork } from "@/types";
+import { Artwork, LogisticsConfig } from "@/types";
+import { recommendTeam } from "./teamRecommendation";
+import { calculateTeamCosts } from "./teamCostCalculator";
+import { DEFAULT_LOGISTICS_CONFIG } from "@/config/logistics";
 
 export interface PackingServiceCost {
     // Tamponnage (Emballage sur site)
@@ -165,11 +168,14 @@ Forfait de base: ${transport.baseCost_eur.toFixed(2)}€
  */
 export function calculateFlowTotalCost(
     artworks: Artwork[],
-    distance_km: number = 0
+    distance_km: number = 0,
+    config: LogisticsConfig = DEFAULT_LOGISTICS_CONFIG
 ): {
     crateCosts_eur: number;
     packingCosts_eur: number;
     transportCost_eur: number;
+    teamCost_eur: number;
+    ancillaryCost_eur: number;
     totalCost_eur: number;
     breakdown: string;
 } {
@@ -186,28 +192,51 @@ export function calculateFlowTotalCost(
     // Coût du transport
     const transport = calculateTransport(artworks, distance_km);
 
-    const totalCost = crateCosts + packingCosts + transport.totalTransportCost_eur;
+    // Coût de l'équipe (Recommandation automatique si non fournie)
+    const teamRec = recommendTeam(artworks, distance_km, config.team_roles);
+    const teamCosts = calculateTeamCosts(
+        teamRec.team_members,
+        teamRec.mission_duration_days,
+        'FR', // Par défaut France pour le calcul théorique
+        config
+    );
+
+    // Frais Annexes (Gestion de base ou forfaitaire)
+    // On pourrait ajouter des frais de dossier par défaut
+    const ancillaryCosts = 150; // Forfait gestion/dossier standard
+
+    const totalCost = crateCosts + packingCosts + transport.totalTransportCost_eur + teamCosts.team_total + ancillaryCosts;
 
     const breakdown = `
-=== DÉTAIL DU FLUX LOGISTIQUE ===
+=== DÉTAIL DU FLUX LOGISTIQUE COMPLET ===
 
 1. Fabrication Caisses: ${crateCosts.toFixed(2)}€
    (${artworks.length} œuvre(s))
 
-2. Emballage sur Site: ${packingCosts.toFixed(2)}€
-   (Tamponnage + Conditionnement)
+2. Emballage & Tamponnage: ${packingCosts.toFixed(2)}€
+   (Intervention terrain estimée)
 
 3. Transport: ${transport.totalTransportCost_eur.toFixed(2)}€
    ${formatTransportSummary(transport)}
 
+4. Équipe & Frais de séjour: ${teamCosts.team_total.toFixed(2)}€
+   (${teamRec.team_members.length} pers. / ${teamRec.mission_duration_days} jours)
+   - Salaires: ${teamCosts.salary_total.toFixed(2)}€
+   - Per Diems: ${teamCosts.per_diem_total.toFixed(2)}€
+   - Hôtels: ${teamCosts.hotel_total.toFixed(2)}€
+
+5. Frais Annexes & Gestion: ${ancillaryCosts.toFixed(2)}€
+
 ================================
-TOTAL FLUX: ${totalCost.toFixed(2)}€
+TOTAL ESTIMÉ: ${totalCost.toFixed(2)}€
     `.trim();
 
     return {
         crateCosts_eur: crateCosts,
         packingCosts_eur: packingCosts,
         transportCost_eur: transport.totalTransportCost_eur,
+        teamCost_eur: teamCosts.team_total,
+        ancillaryCost_eur: ancillaryCosts,
         totalCost_eur: totalCost,
         breakdown
     };

@@ -279,6 +279,8 @@ export const exportCompleteQuoteToPDF = (
             ['Fabrication Caisses (T1/T2)', `${quote.crateCosts_eur.toLocaleString()} €`],
             ['Emballage & Tamponnage sur site', `${quote.packingCosts_eur.toLocaleString()} €`],
             ['Transport Logistique', `${quote.transportCost_eur.toLocaleString()} €`],
+            ['Équipe, Per Diems & Hébergement', `${quote.teamCost_eur.toLocaleString()} €`],
+            ['Frais de Gestion & Annexes', `${quote.ancillaryCost_eur.toLocaleString()} €`],
             ['TOTAL ESTIMÉ (Hors Taxes)', `${quote.totalCost_eur.toLocaleString()} €`]
         ];
 
@@ -310,6 +312,25 @@ export const exportCompleteQuoteToPDF = (
             theme: 'striped',
             styles: { fontSize: 9 },
             columnStyles: { 0: { fontStyle: 'bold', cellWidth: 50 } }
+        });
+
+        // Team & Logistics Breakdown
+        doc.setFontSize(12);
+        doc.setFont('helvetica', 'bold');
+        doc.text('ÉQUIPE & LOGISTIQUE TERRAIN', 15, (doc as any).lastAutoTable.finalY + 15);
+
+        const teamData = [
+            ['Personnel préconisé', `${quote.teamCost_eur > 0 ? 'Inclus selon recommandation IA' : 'Non inclus'}`],
+            ['Frais de séjour (Per Diem/Hôtel)', 'Inclus dans le forfait personnel'],
+            ['Frais de dossier / Gestion', `${quote.ancillaryCost_eur.toLocaleString()} €`]
+        ];
+
+        autoTable(doc, {
+            startY: (doc as any).lastAutoTable.finalY + 20,
+            body: teamData,
+            theme: 'plain',
+            styles: { fontSize: 9 },
+            columnStyles: { 0: { fontStyle: 'bold', cellWidth: 60 } }
         });
 
         // Per Artwork Table

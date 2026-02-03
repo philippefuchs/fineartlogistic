@@ -58,6 +58,7 @@ export function LogisticsPlanner({ project, artworks, onClose, onSave, flow, pro
     const [selectedFormalities, setSelectedFormalities] = useState<string[]>([]);
     const [missionDuration, setMissionDuration] = useState(5);
     const [teamRecommendation, setTeamRecommendation] = useState<string>("");
+    const [selectedAncillaryCosts, setSelectedAncillaryCosts] = useState<string[]>([]);
 
     // Transport Cost State
     const [distanceKm, setDistanceKm] = useState<number>(flow?.transport_cost_breakdown?.distance_km || 0);
@@ -181,6 +182,12 @@ export function LogisticsPlanner({ project, artworks, onClose, onSave, flow, pro
         }
     };
 
+    const handleToggleAncillary = (id: string) => {
+        setSelectedAncillaryCosts(prev =>
+            prev.includes(id) ? prev.filter(aid => aid !== id) : [...prev, id]
+        );
+    };
+
     // Calculate costs
     // Calculate costs
     const destinationCountry = destination.split(',')[1]?.trim() || 'FR';
@@ -193,6 +200,10 @@ export function LogisticsPlanner({ project, artworks, onClose, onSave, flow, pro
             : null;
 
     const formalitiesTotal = selectedFormalities.length * 250; // Mock calculation or use component total
+
+    const ancillaryTotal = logisticsConfig.ancillary_cost_templates
+        .filter(t => selectedAncillaryCosts.includes(t.id))
+        .reduce((sum, t) => sum + t.default_amount, 0);
 
     const calculateEstimatedTransportCost = () => {
         if (!planResult || distanceKm === 0) return 0;
@@ -520,7 +531,36 @@ export function LogisticsPlanner({ project, artworks, onClose, onSave, flow, pro
                                                 </div>
                                                 <div className="p-4 bg-white/[0.02] border border-white/5 rounded-xl">
                                                     <p className="text-[10px] font-black text-zinc-600 uppercase mb-1">Total Logistique</p>
-                                                    <p className="text-xl font-bold text-emerald-400">{(finalTransportCost + (teamCosts?.team_total || 0) + formalitiesTotal).toLocaleString()} €</p>
+                                                    <p className="text-xl font-bold text-emerald-400">{(finalTransportCost + (teamCosts?.team_total || 0) + formalitiesTotal + ancillaryTotal).toLocaleString()} €</p>
+                                                </div>
+                                            </div>
+
+                                            {/* Ancillary Costs Selection Area */}
+                                            <div className="space-y-4">
+                                                <h4 className="text-xs font-black uppercase tracking-[0.2em] text-zinc-600">Frais Annexes de Mission</h4>
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                    {logisticsConfig.ancillary_cost_templates.map(template => {
+                                                        const isSelected = selectedAncillaryCosts.includes(template.id);
+                                                        return (
+                                                            <div
+                                                                key={template.id}
+                                                                onClick={() => handleToggleAncillary(template.id)}
+                                                                className={cn(
+                                                                    "flex items-center justify-between p-3 rounded-xl border cursor-pointer transition-all",
+                                                                    isSelected ? "bg-emerald-500/10 border-emerald-500/30" : "bg-white/5 border-white/5 hover:border-white/10"
+                                                                )}
+                                                            >
+                                                                <div>
+                                                                    <p className="text-xs font-bold text-white">{template.name}</p>
+                                                                    <p className="text-[10px] text-zinc-500">{template.category}</p>
+                                                                </div>
+                                                                <span className={cn(
+                                                                    "text-xs font-black",
+                                                                    isSelected ? "text-emerald-400" : "text-zinc-600"
+                                                                )}>{template.default_amount} €</span>
+                                                            </div>
+                                                        );
+                                                    })}
                                                 </div>
                                             </div>
                                         </div>
@@ -562,6 +602,10 @@ export function LogisticsPlanner({ project, artworks, onClose, onSave, flow, pro
                                                             rate_per_km: pricing.PRIX_KM_PL,
                                                             base_fee: finalTransportCost - (distanceKm * pricing.PRIX_KM_PL)
                                                         },
+                                                        ancillary_total: ancillaryTotal,
+                                                        ancillary_costs: logisticsConfig.ancillary_cost_templates
+                                                            .filter(t => selectedAncillaryCosts.includes(t.id))
+                                                            .map(t => ({ id: t.id, name: t.name, amount: t.default_amount })),
                                                         status: 'PENDING_QUOTE'
                                                     };
                                                     const activeFlowId = flow?.id || (selectedFlowId !== "ALL" ? selectedFlowId : undefined);
@@ -591,6 +635,10 @@ export function LogisticsPlanner({ project, artworks, onClose, onSave, flow, pro
                                                             rate_per_km: pricing.PRIX_KM_PL,
                                                             base_fee: finalTransportCost - (distanceKm * pricing.PRIX_KM_PL)
                                                         },
+                                                        ancillary_total: ancillaryTotal,
+                                                        ancillary_costs: logisticsConfig.ancillary_cost_templates
+                                                            .filter(t => selectedAncillaryCosts.includes(t.id))
+                                                            .map(t => ({ id: t.id, name: t.name, amount: t.default_amount })),
                                                         status: 'VALIDATED'
                                                     };
                                                     const activeFlowId = flow?.id || (selectedFlowId !== "ALL" ? selectedFlowId : undefined);

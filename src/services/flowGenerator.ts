@@ -270,6 +270,21 @@ export async function generateFlowsFromArtworks(
                 }
             }
 
+            // 4. Management & Ancillary Fees
+            quoteLines.push({
+                id: generateId(),
+                project_id: projectId,
+                flow_id: flow.id,
+                category: 'HANDLING',
+                description: `Frais de dossier et coordination logistique`,
+                quantity: 1,
+                unit_price: 150,
+                total_price: 150,
+                currency,
+                source: 'CALCULATION',
+                created_at: now
+            });
+
         } else if (key.includes('RETURN')) {
             // Simple estimation for return
             quoteLines.push({

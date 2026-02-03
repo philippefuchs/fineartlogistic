@@ -67,7 +67,7 @@ export function CompleteQuoteModal({ project, artworks, onClose }: CompleteQuote
                 {/* Main Content */}
                 <div className="flex-1 overflow-y-auto p-6 space-y-6">
                     {/* Summary Cards */}
-                    <div className="grid grid-cols-4 gap-4">
+                    <div className="grid grid-cols-3 gap-4">
                         <GlassCard className="p-4 border-white/5 bg-white/[0.02] text-center">
                             <Package size={20} className="mx-auto mb-2 text-blue-500" />
                             <p className="text-xs text-zinc-500 uppercase tracking-wider mb-1">Caisses</p>
@@ -79,14 +79,24 @@ export function CompleteQuoteModal({ project, artworks, onClose }: CompleteQuote
                             <p className="text-xl font-black text-white">{quote.packingCosts_eur.toLocaleString()} €</p>
                         </GlassCard>
                         <GlassCard className="p-4 border-white/5 bg-white/[0.02] text-center">
-                            <Truck size={20} className="mx-auto mb-2 text-emerald-500" />
+                            <Truck size={20} className="mx-auto mb-2 text-indigo-500" />
                             <p className="text-xs text-zinc-500 uppercase tracking-wider mb-1">Transport</p>
                             <p className="text-xl font-black text-white">{quote.transportCost_eur.toLocaleString()} €</p>
                         </GlassCard>
+                        <GlassCard className="p-4 border-white/5 bg-white/[0.02] text-center">
+                            <Truck size={20} className="mx-auto mb-2 text-amber-500" />
+                            <p className="text-xs text-zinc-500 uppercase tracking-wider mb-1">Équipe & Séjour</p>
+                            <p className="text-xl font-black text-white">{quote.teamCost_eur.toLocaleString()} €</p>
+                        </GlassCard>
+                        <GlassCard className="p-4 border-white/5 bg-white/[0.02] text-center">
+                            <Package size={20} className="mx-auto mb-2 text-zinc-500" />
+                            <p className="text-xs text-zinc-500 uppercase tracking-wider mb-1">Frais Annexes</p>
+                            <p className="text-xl font-black text-white">{quote.ancillaryCost_eur.toLocaleString()} €</p>
+                        </GlassCard>
                         <GlassCard className="p-4 border-emerald-500/20 bg-emerald-500/10 text-center">
                             <Calculator size={20} className="mx-auto mb-2 text-emerald-500" />
-                            <p className="text-xs text-emerald-400 uppercase tracking-wider mb-1">Total</p>
-                            <p className="text-2xl font-black text-emerald-400">{quote.totalCost_eur.toLocaleString()} €</p>
+                            <p className="text-xs text-emerald-400 uppercase tracking-wider mb-1">Total HT</p>
+                            <p className="text-xl font-black text-emerald-400">{quote.totalCost_eur.toLocaleString()} €</p>
                         </GlassCard>
                     </div>
 
